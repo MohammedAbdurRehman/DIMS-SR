@@ -76,44 +76,16 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
 
       let stream: MediaStream | null = null;
 
+      // Start with the most basic camera access possible
       try {
-        // Try rear camera first (mobile)
+        console.log('Attempting basic camera access...');
         stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280, min: 640 },
-            height: { ideal: 720, min: 480 }
-          }
+          video: true // Most basic video constraint
         });
-        console.log('Camera stream obtained with rear camera');
-      } catch (primaryError) {
-        console.warn('Primary camera access failed, trying user-facing camera:', primaryError);
-        try {
-          // Try front camera
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: { ideal: 'user' },
-              width: { ideal: 1280, min: 640 },
-              height: { ideal: 720, min: 480 }
-            }
-          });
-          console.log('Camera stream obtained with front camera');
-        } catch (userError) {
-          console.warn('Front camera also failed, trying any camera:', userError);
-          try {
-            // Fallback to any camera with minimal constraints
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 }
-              }
-            });
-            console.log('Camera stream obtained with minimal constraints');
-          } catch (fallbackError) {
-            console.error('All camera access attempts failed:', fallbackError);
-            throw fallbackError;
-          }
-        }
+        console.log('Basic camera access successful');
+      } catch (basicError) {
+        console.warn('Basic camera access failed:', basicError);
+        throw basicError;
       }
 
       streamRef.current = stream;
@@ -129,21 +101,52 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
       console.log('Setting video srcObject');
       videoRef.current.srcObject = stream;
 
-      // Set up event handlers
-      videoRef.current.onloadedmetadata = async () => {
-        console.log('Video metadata loaded, attempting to play');
-        try {
-          await videoRef.current?.play();
-          console.log('Video started playing successfully');
-          setVideoReady(true);
-          setCaptureState('camera-active');
-        } catch (playError) {
-          console.error('Video play failed:', playError);
-          setCameraError('Failed to start video playback. Please check camera permissions and try again.');
-          setCaptureState('idle');
-        }
-      };
+      // Set video element properties explicitly
+      videoRef.current.width = 1280;
+      videoRef.current.height = 720;
+      videoRef.current.muted = true;
+      videoRef.current.playsInline = true;
 
+      // Try to play immediately
+      try {
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => {
+            console.log('Video started playing successfully');
+            setVideoReady(true);
+            setCaptureState('camera-active');
+          }).catch((playError) => {
+            console.error('Video play failed:', playError);
+            // Fallback: wait for user interaction
+            videoRef.current?.addEventListener('canplay', () => {
+              videoRef.current?.play().then(() => {
+                console.log('Video started playing on canplay event');
+                setVideoReady(true);
+                setCaptureState('camera-active');
+              }).catch(e => {
+                console.error('Still failed to play:', e);
+                setCameraError('Failed to start video playback. Please try again.');
+                setCaptureState('idle');
+              });
+            }, { once: true });
+
+            // Timeout fallback
+            setTimeout(() => {
+              if (captureState === 'camera-loading') {
+                console.warn('Video play timeout');
+                setCameraError('Camera initialization timeout. Please try again.');
+                setCaptureState('idle');
+              }
+            }, 5000);
+          });
+        }
+      } catch (immediatePlayError) {
+        console.error('Immediate play failed:', immediatePlayError);
+        setCameraError('Failed to start camera preview. Please try again.');
+        setCaptureState('idle');
+      }
+
+      // Set up additional event handlers
       videoRef.current.onplay = () => {
         console.log('Video is now playing');
         setVideoReady(true);
@@ -341,6 +344,23 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                 <Camera size={18} />
                 Open Camera
               </button>
+              <button
+                onClick={async () => {
+                  try {
+                    console.log('Testing basic camera access...');
+                    const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    console.log('Test camera access successful:', testStream);
+                    alert('Camera access works! Stream tracks:', testStream.getTracks().length);
+                    testStream.getTracks().forEach(track => track.stop());
+                  } catch (e) {
+                    console.error('Test camera access failed:', e);
+                    alert('Camera access failed: ' + e.message);
+                  }
+                }}
+                className="w-full bg-secondary text-secondary-foreground py-2 rounded-lg font-semibold hover:bg-secondary/80 transition-colors text-sm"
+              >
+                Test Camera Access
+              </button>
               {!cameraAvailable && (
                 <div className="text-sm text-muted-foreground">
                   Camera not found. You can still capture a fingerprint image by using any available camera device or a plain surface.
@@ -373,7 +393,7 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                 <p className="text-sm font-semibold text-foreground">Capture Your Hand</p>
                 <p className="text-xs text-muted-foreground">Position all five fingers clearly in frame</p>
               </div>
-              <div className="relative rounded-xl overflow-hidden border-2 border-primary aspect-video bg-gray-900">
+              <div className="relative rounded-xl overflow-hidden border-2 border-primary aspect-video bg-black">
                 <video
                   ref={videoRef}
                   autoPlay
@@ -382,10 +402,15 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                   className="w-full h-full object-cover"
                   onLoadedData={() => console.log('Video loaded data')}
                   onError={(e) => console.error('Video element error:', e)}
-                  style={{ backgroundColor: 'transparent' }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    backgroundColor: 'black'
+                  }}
                 />
                 {!videoReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
+                  <div className="absolute inset-0 flex items-center justify-center bg-black">
                     <div className="text-center text-white">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
                       <p className="text-sm">Loading camera...</p>
