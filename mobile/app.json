@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "DIMS-SR",
+    "slug": "dims-sr",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#3B2F8F"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dimssr.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "DIMS-SR needs camera access to capture fingerprints for NADRA biometric verification during SIM registration.",
+        "NSPhotoLibraryUsageDescription": "DIMS-SR needs photo library access to save and retrieve fingerprint images."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#3B2F8F"
+      },
+      "package": "com.dimssr.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
+      ],
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DIMS-SR needs camera access to capture fingerprints for NADRA biometric verification."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    },
+    {
+      "src": "backend/api/index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "backend/api/nadra.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/backend/api/index.js"
+    },
+    {
+      "src": "/nadra/(.*)",
+      "dest": "/backend/api/nadra.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "functions": {
+    "backend/api/index.js": {
+      "maxDuration": 30
+    },
+    "backend/api/nadra.js": {
+      "maxDuration": 30
+    }
+  }
+}

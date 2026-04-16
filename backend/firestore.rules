@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // User collection - only owner can read/write their document, no deletes
+    match /users/{uid} {
+      allow read: if request.auth.uid == uid;
+      allow write: if request.auth.uid == uid && 
+                      request.resource.data.uid == uid &&
+                      request.resource.data.cnic == resource.data.cnic; // Cannot change CNIC
+      allow create: if request.auth.uid == request.resource.data.uid;
+      allow delete: if false; // Users cannot be deleted for immutability
+    }
+
+    // SIMs collection - authenticated users can read their own SIMs, no deletes
+    match /sims/{simId} {
+      allow read: if request.auth.uid == resource.data.uid;
+      allow create: if request.auth.uid == request.resource.data.uid;
+      allow update: if request.auth.uid == resource.data.uid &&
+                       request.resource.data.uid == resource.data.uid && // Cannot change owner
+                       request.resource.data.cnic == resource.data.cnic && // Cannot change CNIC
+                       request.resource.data.transactionId == resource.data.transactionId; // Cannot change transaction ID
+      allow delete: if false; // SIMs should never be deleted, only deactivated
+    }
+
+    // Orders collection - users can only read their own orders, no updates/deletes
+    match /orders/{orderId} {
+      allow read: if request.auth.uid == resource.data.uid;
+      allow create: if request.auth.uid == request.resource.data.uid;
+      allow update, delete: if false; // Orders are immutable after creation
+    }
+
+    // Public order tracking - anyone can track if they have the tracking number
+    match /orders/{orderId} {
+      allow read: if resource.data.trackingNumber == request.query.trackingNumber;
+    }
+
+    // Sessions collection - cannot be accessed directly
+    match /sessions/{sessionId} {
+      allow read, write, delete: if false;
+    }
+
+    // Audit logs - cannot be accessed directly by users
+    match /auditLogs/{logId} {
+      allow read, write, delete: if false;
+    }
+
+    // Blockchain events - write-only for backend
+    match /blockchainEvents/{eventId} {
+      allow read: if request.auth.uid == resource.data.uid;
+      allow write, delete: if false; // Only backend can write, no deletes
+    }
+    }
+
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
