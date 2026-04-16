@@ -3,15 +3,30 @@ const fs = require('fs');
 const path = require('path');
 
 // Initialize Firebase Admin SDK
-const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(__dirname, '../firebase-key.json');
+let serviceAccount;
 
-if (!fs.existsSync(serviceAccountPath)) {
-  console.error('ERROR: Firebase service account key not found at:', serviceAccountPath);
-  console.error('Please download your Firebase service account key from Firebase Console');
-  process.exit(1);
+// Try to load from environment variable first (for Vercel/production)
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } catch (error) {
+    console.error('ERROR: Invalid FIREBASE_SERVICE_ACCOUNT JSON:', error.message);
+    process.exit(1);
+  }
+} else {
+  // Fall back to file-based loading (for local development)
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(__dirname, '../firebase-key.json');
+  
+  if (!fs.existsSync(serviceAccountPath)) {
+    console.error('ERROR: Firebase service account key not found at:', serviceAccountPath);
+    console.error('Please either:');
+    console.error('1. Download your Firebase service account key and place it at:', serviceAccountPath);
+    console.error('2. OR set the FIREBASE_SERVICE_ACCOUNT environment variable with the JSON content');
+    process.exit(1);
+  }
+  
+  serviceAccount = require(serviceAccountPath);
 }
-
-const serviceAccount = require(serviceAccountPath);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
