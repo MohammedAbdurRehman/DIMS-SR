@@ -395,8 +395,8 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                       <p className="text-sm">Loading camera...</p>
                     </div>
                   </div>
-                )
-                {/* Hand overlay guide */}
+                )}
+                /* Hand overlay guide */
                 {videoReady && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="border-2 border-white/60 rounded-lg w-48 h-32 flex items-center justify-center bg-black/20">
