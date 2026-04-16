@@ -148,10 +148,10 @@ temp/
 *.sln
 *.sw?
 
-# Firebase
-.firebase/
-firebase-debug.log
-firestore-debug.log
+# Firebase service account keys
+backend/config/firebase-key.json
+firebase-key.json
+*.firebase-key.json
 
 # Local development
 .env.local
