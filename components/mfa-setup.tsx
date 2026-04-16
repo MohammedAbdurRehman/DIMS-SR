@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Copy, Check, Shield } from 'lucide-react';
-import { getValidAccessToken } from '../lib/utils';
+import { getApiUrl, getValidAccessToken } from '../lib/utils';
 
 interface MfaSetupProps {
   email: string;
@@ -26,7 +26,7 @@ export default function MfaSetup({ email, onComplete }: MfaSetupProps) {
           return;
         }
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/mfa/setup`, {
+        const response = await fetch(`${getApiUrl()}/api/auth/mfa/setup`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -75,7 +75,7 @@ export default function MfaSetup({ email, onComplete }: MfaSetupProps) {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/mfa/verify`, {
+      const response = await fetch(`${getApiUrl()}/api/auth/mfa/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

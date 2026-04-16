@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronLeft, Shield } from 'lucide-react';
+import { getApiUrl } from '../lib/utils';
 
 interface MfaVerificationProps {
   email: string;
@@ -65,7 +66,7 @@ export default function MfaVerification({
 
       // Make API call to verify MFA
       const tempToken = localStorage.getItem('tempToken');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/mfa/verify-login`, {
+      const response = await fetch(`${getApiUrl()}/api/auth/mfa/verify-login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

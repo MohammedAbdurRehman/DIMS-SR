@@ -15,6 +15,21 @@ export function getApiUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 }
 
+function base64UrlDecode(base64Url: string): string {
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+  try {
+    return decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((c) => `%${('00' + c.charCodeAt(0).toString(16)).slice(-2)}`)
+        .join('')
+    );
+  } catch {
+    return atob(padded);
+  }
+}
+
 // Function to check if JWT token is expired
 export function isTokenExpired(token: string): boolean {
   try {
