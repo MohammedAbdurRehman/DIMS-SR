@@ -1,94 +1,144 @@
-const axios = require('axios');
+const crypto = require('crypto');
 
-// NADRA API - now integrated into backend
-// Uses local API endpoints for both local development and production
-const NADRA_API_BASE = process.env.NADRA_API_BASE || 'http://localhost:3001/api/nadra';
+const MOCK_NADRA_DATA = {
+  '34203-6348972-7': {
+    cnic: '34203-6348972-7',
+    name: 'MUHAMMAD ABDUL REHMAN',
+    fatherName: 'ABDUL REHMAN KHAN',
+    dateOfBirth: '1990-01-01',
+    gender: 'M',
+    address: 'KARACHI, SINDH',
+    province: 'SINDH',
+    status: 'active',
+  },
+  '42301-7331552-4': {
+    cnic: '42301-7331552-4',
+    name: 'Ayesha Kashif',
+    fatherName: 'Kashif Majeed',
+    dateOfBirth: '1988-08-12',
+    gender: 'F',
+    address: 'RAWALPINDI, PUNJAB',
+    province: 'PUNJAB',
+    status: 'active',
+  },
+  '42101-1234567-8': {
+    cnic: '42101-1234567-8',
+    name: 'SANA KHAN',
+    fatherName: 'SHAHID KHAN',
+    dateOfBirth: '1995-04-05',
+    gender: 'F',
+    address: 'PESHAWAR, KPK',
+    province: 'KPK',
+    status: 'active',
+  },
+};
 
-/**
- * Verify user with NADRA
- * @param {string} cnic - CNIC number
- * @param {string} name - User name
- * @param {string} fatherName - Father's name
- * @param {string} dateOfBirth - Date of birth
- * @returns {Promise<Object>} Verification result
- */
+function normalizeCNIC(cnic) {
+  const digits = cnic.replace(/\D/g, '');
+  if (digits.length !== 13) return cnic;
+  return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+}
+
+function sha256(data) {
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+
 async function verifyUserWithNadra(cnic, name, fatherName, dateOfBirth) {
-  try {
-    const response = await axios.post(`${NADRA_API_BASE}/verify-user`, {
-      cnic,
-      name,
-      fatherName,
-      dateOfBirth
-    }, { timeout: 5000 });
+  const normalizedCnic = normalizeCNIC(cnic);
+  const citizen = MOCK_NADRA_DATA[normalizedCnic];
 
-    return response.data;
-  } catch (error) {
-    console.error('NADRA User Verification Error:', error.response?.data || error.message);
-    // Graceful fallback for development
-    console.warn('Returning mock verification success');
+  if (!citizen) {
+    console.warn('NADRA mock user not found:', normalizedCnic);
     return {
-      success: true,
-      verified: true,
-      message: 'Mock verification (NADRA service unavailable)',
+      success: false,
+      verified: false,
+      message: 'Citizen not found in mock NADRA database',
     };
   }
+
+  if (name && citizen.name.toUpperCase() !== name.toUpperCase()) {
+    return {
+      success: false,
+      verified: false,
+      message: 'Name mismatch',
+    };
+  }
+
+  if (fatherName && citizen.fatherName.toUpperCase() !== fatherName.toUpperCase()) {
+    return {
+      success: false,
+      verified: false,
+      message: 'Father name mismatch',
+    };
+  }
+
+  if (dateOfBirth && citizen.dateOfBirth !== dateOfBirth) {
+    return {
+      success: false,
+      verified: false,
+      message: 'Date of birth mismatch',
+    };
+  }
+
+  return {
+    success: true,
+    verified: true,
+    message: 'User verified successfully',
+    user: citizen,
+  };
 }
 
-/**
- * Verify fingerprint with NADRA
- * @param {string} cnic - CNIC number
- * @param {string} fingerprintImages - Base64 encoded fingerprint images
- * @returns {Promise<Object>} Verification result
- */
 async function verifyFingerprintWithNadra(cnic, fingerprintImages) {
-  try {
-    const images = Array.isArray(fingerprintImages)
-      ? fingerprintImages
-      : fingerprintImages ? [fingerprintImages] : [];
+  const normalizedCnic = normalizeCNIC(cnic);
+  const citizen = MOCK_NADRA_DATA[normalizedCnic];
 
-    const response = await axios.post(`${NADRA_API_BASE}/verify-fingerprint`, {
-      cnic,
-      fingerprintImages: images,
-    }, { timeout: 5000 });
-
-    return response.data;
-  } catch (error) {
-    console.error('NADRA Fingerprint Verification Error:', error.response?.data || error.message);
-    // Graceful fallback for development
-    console.warn('Returning mock fingerprint verification success');
+  if (!citizen) {
+    console.warn('NADRA mock fingerprint user not found:', normalizedCnic);
     return {
-      success: true,
-      verified: true,
-      matchPercentage: 95,
-      message: 'Mock fingerprint verification (NADRA service unavailable)',
+      success: false,
+      verified: false,
+      message: 'Citizen not found in mock NADRA database',
     };
   }
+
+  const images = Array.isArray(fingerprintImages)
+    ? fingerprintImages
+    : fingerprintImages ? [fingerprintImages] : [];
+
+  if (images.length === 0) {
+    return {
+      success: false,
+      verified: false,
+      message: 'No fingerprint images provided',
+    };
+  }
+
+  return {
+    success: true,
+    verified: true,
+    matchPercentage: 95,
+    message: 'Fingerprint verified successfully',
+    fingerprintHash: sha256(`${normalizedCnic}_mock_fp`),
+    fingerprintCount: images.length,
+  };
 }
 
-/**
- * Get user details from NADRA
- * @param {string} cnic - CNIC number
- * @param {string} authToken - JWT authentication token
- * @returns {Promise<Object>} User details
- */
-async function getUserFromNadra(cnic, authToken) {
-  try {
-    const response = await axios.get(`${NADRA_API_BASE}/citizen/${cnic}`, {
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-      },
-      timeout: 5000,
-    });
+async function getUserFromNadra(cnic) {
+  const normalizedCnic = normalizeCNIC(cnic);
+  const citizen = MOCK_NADRA_DATA[normalizedCnic];
 
-    return response.data;
-  } catch (error) {
-    console.error('NADRA Get User Error:', error.response?.data || error.message);
-    throw new Error('Failed to get user from NADRA');
+  if (!citizen) {
+    throw new Error('Citizen not found in mock NADRA database');
   }
+
+  return {
+    success: true,
+    citizen,
+  };
 }
 
 module.exports = {
   verifyUserWithNadra,
   verifyFingerprintWithNadra,
-  getUserFromNadra
+  getUserFromNadra,
 };

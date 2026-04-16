@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Camera, RotateCcw, CheckCircle, AlertCircle, Fingerprint, X } from 'lucide-react';
-import { getValidAccessToken } from '../lib/utils';
+import { getApiUrl, getValidAccessToken } from '../lib/utils';
 
 interface FingerprintCaptureProps {
   cnic: string;
@@ -151,17 +151,14 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
         return;
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/nadra/verify-fingerprint`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ cnic, fingerprintImages }),
-        }
-      );
+      const response = await fetch(`${getApiUrl()}/api/nadra/verify-fingerprint`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ cnic, fingerprintImages }),
+      });
 
       const data = await response.json();
 
