@@ -30,13 +30,5 @@
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "backend/api/index.js": {
-      "maxDuration": 30
-    },
-    "backend/api/nadra.js": {
-      "maxDuration": 30
-    }
   }
 }
