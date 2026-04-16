@@ -17,6 +17,10 @@ const nadraRoutes = require('../routes/nadra');
 // Initialize Express app
 const app = express();
 
+// ============= PROXY CONFIGURATION =============
+// Trust Vercel's proxy headers for proper IP detection and rate limiting
+app.set('trust proxy', 1);
+
 // ============= SECURITY MIDDLEWARE =============
 
 // Helmet - Sets various HTTP headers for security
