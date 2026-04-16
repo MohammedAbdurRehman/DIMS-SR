@@ -68,19 +68,45 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
             height: { ideal: 720 }
           }
         });
+        console.log('Camera stream obtained with rear camera');
       } catch (primaryError) {
         console.warn('Primary camera access failed, falling back to default camera:', primaryError);
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          });
+          console.log('Camera stream obtained with fallback camera');
+        } catch (fallbackError) {
+          console.error('Fallback camera access also failed:', fallbackError);
+          throw fallbackError;
+        }
       }
 
       streamRef.current = stream;
       if (videoRef.current) {
+        console.log('Setting video srcObject');
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play();
-          setCaptureState('camera-active');
+          console.log('Video metadata loaded, attempting to play');
+          videoRef.current?.play().then(() => {
+            console.log('Video started playing successfully');
+            setCaptureState('camera-active');
+          }).catch(err => {
+            console.error('Video play failed:', err);
+            setCameraError('Failed to start video playback. Please refresh and try again.');
+            setCaptureState('idle');
+          });
+        };
+        videoRef.current.onerror = (e) => {
+          console.error('Video element error:', e);
+          setCameraError('Camera stream error. Please try again.');
+          setCaptureState('idle');
         };
       } else {
+        console.error('Video ref is null');
         setCaptureState('camera-active');
       }
     } catch (err: any) {
@@ -276,7 +302,9 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain bg-black"
+                  onLoadedData={() => console.log('Video loaded data')}
+                  onError={(e) => console.error('Video element error:', e)}
                 />
                 {/* Hand overlay guide */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
