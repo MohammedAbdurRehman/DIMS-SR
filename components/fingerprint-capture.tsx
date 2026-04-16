@@ -76,102 +76,81 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
 
       let stream: MediaStream | null = null;
 
-      // Start with the most basic camera access possible
+      // Get camera stream
       try {
-        console.log('Attempting basic camera access...');
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true // Most basic video constraint
-        });
-        console.log('Basic camera access successful');
-      } catch (basicError) {
-        console.warn('Basic camera access failed:', basicError);
-        throw basicError;
-      }
-
-      streamRef.current = stream;
-
-      // Ensure video element is ready
-      if (!videoRef.current) {
-        console.error('Video element not found');
-        setCameraError('Video element not ready. Please try again.');
+        console.log('Requesting camera access...');
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        console.log('✓ Stream obtained. Tracks:', stream.getTracks().map(t => `${t.kind}(${t.enabled})`).join(', '));
+      } catch (basicError: any) {
+        console.error('✗ Camera access denied:', basicError.name, basicError.message);
+        let errorMsg = 'Camera access denied. ';
+        if (basicError.name === 'NotAllowedError') {
+          errorMsg += 'Please allow camera permission.';
+        } else if (basicError.name === 'NotFoundError') {
+          errorMsg += 'No camera found on device.';
+        } else if (basicError.name === 'NotReadableError') {
+          errorMsg += 'Camera is in use by another app.';
+        }
+        setCameraError(errorMsg);
         setCaptureState('idle');
         return;
       }
 
-      console.log('Setting video srcObject');
-      videoRef.current.srcObject = stream;
-
-      // Set video element properties explicitly
-      videoRef.current.width = 1280;
-      videoRef.current.height = 720;
-      videoRef.current.muted = true;
-      videoRef.current.playsInline = true;
-
-      // Try to play immediately
-      try {
-        const playPromise = videoRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {
-            console.log('Video started playing successfully');
-            setVideoReady(true);
-            setCaptureState('camera-active');
-          }).catch((playError) => {
-            console.error('Video play failed:', playError);
-            // Fallback: wait for user interaction
-            videoRef.current?.addEventListener('canplay', () => {
-              videoRef.current?.play().then(() => {
-                console.log('Video started playing on canplay event');
-                setVideoReady(true);
-                setCaptureState('camera-active');
-              }).catch(e => {
-                console.error('Still failed to play:', e);
-                setCameraError('Failed to start video playback. Please try again.');
-                setCaptureState('idle');
-              });
-            }, { once: true });
-
-            // Timeout fallback
-            setTimeout(() => {
-              if (captureState === 'camera-loading') {
-                console.warn('Video play timeout');
-                setCameraError('Camera initialization timeout. Please try again.');
-                setCaptureState('idle');
-              }
-            }, 5000);
-          });
-        }
-      } catch (immediatePlayError) {
-        console.error('Immediate play failed:', immediatePlayError);
-        setCameraError('Failed to start camera preview. Please try again.');
+      if (!videoRef.current) {
+        console.error('✗ Video element not in DOM');
+        stream.getTracks().forEach(t => t.stop());
+        setCameraError('Video element not ready.');
         setCaptureState('idle');
+        return;
       }
 
-      // Set up additional event handlers
-      videoRef.current.onplay = () => {
-        console.log('Video is now playing');
-        setVideoReady(true);
-      };
+      streamRef.current = stream;
 
-      videoRef.current.onpause = () => {
-        console.log('Video paused');
-        setVideoReady(false);
-      };
+      // Attach stream to video element
+      videoRef.current.srcObject = stream;
+      console.log('✓ Stream attached to video element');
 
-      videoRef.current.onerror = (e) => {
-        console.error('Video element error:', e);
-        setCameraError('Camera stream error. Please try again.');
-        setVideoReady(false);
+      // Wait for video data to start flowing
+      const waitForVideoData = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.error('✗ Video data timeout (no loadedmetadata event)');
+          reject(new Error('Video stream not starting'));
+        }, 5000);
+
+        const onLoadedMetadata = () => {
+          clearTimeout(timeout);
+          console.log(`✓ Video data flowing. Resolution: ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`);
+          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
+          resolve();
+        };
+
+        videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
+      });
+
+      try {
+        await waitForVideoData;
+      } catch (error: any) {
+        console.error('✗ Failed waiting for video data:', error.message);
+        stream.getTracks().forEach(t => t.stop());
+        setCameraError('Camera stream not responding. Try again.');
         setCaptureState('idle');
-      };
+        return;
+      }
 
-      // Add a timeout in case metadata never loads
-      setTimeout(() => {
-        if (captureState === 'camera-loading') {
-          console.warn('Video metadata loading timeout');
-          setCameraError('Camera initialization timeout. Please try again.');
-          setCaptureState('idle');
-        }
-      }, 10000);
+      // Now attempt to play
+      try {
+        console.log('Attempting to play video...');
+        await videoRef.current.play();
+        console.log('✓ Video playing');
+        setCaptureState('camera-active');
+        setVideoReady(true);
+      } catch (playError: any) {
+        console.error('✗ Play failed:', playError.message);
+        setCameraError('Could not start video playback.');
+        setCaptureState('idle');
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
 
     } catch (err: any) {
       console.error('Camera initialization error:', err);
@@ -406,17 +385,17 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    backgroundColor: 'black'
+                    backgroundColor: 'transparent'
                   }}
                 />
                 {!videoReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black">
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
                     <div className="text-center text-white">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
                       <p className="text-sm">Loading camera...</p>
                     </div>
                   </div>
-                )}
+                )
                 {/* Hand overlay guide */}
                 {videoReady && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
