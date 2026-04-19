@@ -158,6 +158,11 @@ const validateChangeEmail = [
 
   body('password')
     .notEmpty().withMessage('Password is required to change email'),
+
+  body('mfaCode')
+    .optional()
+    .matches(/^\d{6}$/)
+    .withMessage('MFA code must be 6 digits'),
 ];
 
 /**
@@ -177,6 +182,23 @@ const validateChangePassword = [
     .notEmpty().withMessage('Confirm password is required')
     .custom((value, { req }) => value === req.body.newPassword)
     .withMessage('Passwords do not match'),
+
+  body('mfaCode')
+    .optional()
+    .matches(/^\d{6}$/)
+    .withMessage('MFA code must be 6 digits'),
+];
+
+/**
+ * Reset MFA (re-configure authenticator) — password required; MFA code when MFA is enabled
+ */
+const validateResetMfa = [
+  body('password').notEmpty().withMessage('Password is required'),
+
+  body('mfaCode')
+    .optional()
+    .matches(/^\d{6}$/)
+    .withMessage('MFA code must be 6 digits'),
 ];
 
 /**
@@ -210,4 +232,5 @@ module.exports = {
   validateSIMDeactivation,
   validateChangeEmail,
   validateChangePassword,
+  validateResetMfa,
 };

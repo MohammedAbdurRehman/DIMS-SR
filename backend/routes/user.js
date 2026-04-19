@@ -1,15 +1,48 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
+const speakeasy = require('speakeasy');
 const {
   validateChangeEmail,
   validateChangePassword,
+  validateResetMfa,
   handleValidationErrors,
   sanitizeInput,
 } = require('../middleware/validation');
-const { verifyJWT, requireMFA } = require('../middleware/auth');
-const { db } = require('../config/firebase');
+const { verifyJWT } = require('../middleware/auth');
+const { db, auth } = require('../config/firebase');
 const { auditLog } = require('../utils/audit-logger');
+
+/**
+ * For accounts with MFA enabled, require a valid TOTP on the same request (UI prompts, then retries with mfaCode).
+ * JWTs from firebase-auth do not carry mfaVerified; the old requireMFA middleware therefore always blocked these routes.
+ */
+function ensureMfaForSensitiveAction(user, mfaCode, res) {
+  if (!user.mfaEnabled) return true;
+  if (!user.mfaSecret) {
+    res.status(500).json({ error: 'MFA is enabled but no secret is stored for this account.' });
+    return false;
+  }
+  const code = mfaCode != null ? String(mfaCode).trim() : '';
+  if (!/^\d{6}$/.test(code)) {
+    res.status(403).json({
+      mfaRequired: true,
+      error: 'MFA verification required to complete this change.',
+    });
+    return false;
+  }
+  const verified = speakeasy.totp.verify({
+    secret: user.mfaSecret,
+    encoding: 'base32',
+    token: code,
+    window: 2,
+  });
+  if (!verified) {
+    res.status(401).json({ error: 'Invalid MFA code' });
+    return false;
+  }
+  return true;
+}
 
 /**
  * GET /api/user/profile
@@ -136,48 +169,59 @@ router.get('/track-order/:trackingNumber', async (req, res) => {
 router.post(
   '/change-email',
   verifyJWT,
-  requireMFA,
   sanitizeInput,
   validateChangeEmail,
   handleValidationErrors,
   async (req, res) => {
     try {
-      const { newEmail, password } = req.body;
-      const userId = req.user.id;
+      const { newEmail, password, mfaCode } = req.body;
+      const userId = req.user.uid;
 
-      // Fetch user to verify password
-      // const userResult = await db.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
-      // if (userResult.rows.length === 0) {
-      //   return res.status(404).json({ error: 'User not found' });
-      // }
-      // const user = userResult.rows[0];
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const user = userDoc.data();
 
-      // Mock user for verification
-      const user = {
-        password_hash: await bcrypt.hash('testpassword', 12),
-      };
-
-      // Verify current password
-      const passwordMatch = await bcrypt.compare(password, user.password_hash);
+      const passwordMatch = await bcrypt.compare(password, user.passwordHash);
       if (!passwordMatch) {
         return res.status(401).json({ error: 'Invalid password' });
       }
 
-      // Check if email is already in use
-      // const emailCheck = await db.query('SELECT id FROM users WHERE email = $1 AND id != $2', [newEmail, userId]);
-      // if (emailCheck.rows.length > 0) {
-      //   return res.status(409).json({ error: 'Email already in use' });
-      // }
+      if (!ensureMfaForSensitiveAction(user, mfaCode, res)) return;
 
-      // Update email in database
-      // await db.query('UPDATE users SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [newEmail, userId]);
+      const normalizedEmail = newEmail.toLowerCase();
+      const dupSnap = await db.collection('users').where('email', '==', normalizedEmail).limit(2).get();
+      const taken = dupSnap.docs.some((d) => d.id !== userId);
+      if (taken) {
+        return res.status(409).json({ error: 'Email already in use' });
+      }
 
-      // Log email change
-      // await logAuditEvent(userId, 'EMAIL_CHANGED', 'user', userId, req, { newEmail });
+      try {
+        await auth.updateUser(userId, { email: normalizedEmail });
+      } catch (authErr) {
+        if (authErr.code === 'auth/email-already-exists') {
+          return res.status(409).json({ error: 'This email is already in use by another account' });
+        }
+        throw authErr;
+      }
+
+      await db.collection('users').doc(userId).update({
+        email: normalizedEmail,
+        updatedAt: new Date(),
+      });
+
+      await auditLog({
+        userId,
+        action: 'EMAIL_CHANGED',
+        details: { newEmail: normalizedEmail, timestamp: new Date().toISOString() },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
 
       res.json({
         message: 'Email changed successfully',
-        newEmail,
+        newEmail: normalizedEmail,
       });
     } catch (error) {
       console.error('[Error] Changing Email:', error);
@@ -193,51 +237,46 @@ router.post(
 router.post(
   '/change-password',
   verifyJWT,
-  requireMFA,
   sanitizeInput,
   validateChangePassword,
   handleValidationErrors,
   async (req, res) => {
     try {
-      const { currentPassword, newPassword } = req.body;
+      const { currentPassword, newPassword, mfaCode } = req.body;
       const userId = req.user.uid;
 
-      // Fetch user from Firestore
       const userDoc = await db.collection('users').doc(userId).get();
       if (!userDoc.exists) {
         return res.status(404).json({ error: 'User not found' });
       }
       const user = userDoc.data();
 
-      // Verify current password
       const passwordMatch = await bcrypt.compare(currentPassword, user.passwordHash);
       if (!passwordMatch) {
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
 
-      // Hash new password
+      if (!ensureMfaForSensitiveAction(user, mfaCode, res)) return;
+
       const newPasswordHash = await bcrypt.hash(newPassword, 12);
 
-      // Update password in Firebase Auth
       await auth.updateUser(userId, {
-        password: newPassword
+        password: newPassword,
       });
 
-      // Update password hash in Firestore
       await db.collection('users').doc(userId).update({
         passwordHash: newPasswordHash,
-        updatedAt: new Date()
+        updatedAt: new Date(),
       });
 
-      // Log password change
       await auditLog({
         userId: userId,
         action: 'PASSWORD_CHANGED',
         details: {
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
         },
         ipAddress: req.ip,
-        userAgent: req.get('user-agent')
+        userAgent: req.get('user-agent'),
       });
 
       res.json({
@@ -252,12 +291,73 @@ router.post(
 );
 
 /**
+ * POST /api/user/reset-mfa
+ * Clear MFA enrollment and issue a new secret (user completes setup via /api/auth/mfa/setup + verify).
+ */
+router.post(
+  '/reset-mfa',
+  verifyJWT,
+  sanitizeInput,
+  validateResetMfa,
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { password, mfaCode } = req.body;
+      const userId = req.user.uid;
+
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const user = userDoc.data();
+
+      const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordMatch) {
+        return res.status(401).json({ error: 'Invalid password' });
+      }
+
+      if (!ensureMfaForSensitiveAction(user, mfaCode, res)) return;
+
+      const mfaSecret = speakeasy.generateSecret({
+        name: `DIMS-SR (${user.email || 'user'})`,
+        issuer: 'DIMS-SR',
+        length: 32,
+      });
+
+      await db.collection('users').doc(userId).update({
+        mfaSecret: mfaSecret.base32,
+        mfaEnabled: false,
+        mfaVerified: false,
+        mfaRequired: true,
+        updatedAt: new Date(),
+      });
+
+      await auditLog({
+        userId,
+        action: 'MFA_RESET_REQUESTED',
+        details: { timestamp: new Date().toISOString() },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
+      res.json({
+        message: 'MFA has been reset. Scan the new QR code to re-enable MFA.',
+        mfaReset: true,
+      });
+    } catch (error) {
+      console.error('[Error] Resetting MFA:', error);
+      res.status(500).json({ error: 'Failed to reset MFA' });
+    }
+  }
+);
+
+/**
  * POST /api/user/setup-mfa
  * Generate QR code for MFA setup
  */
 router.post('/setup-mfa', verifyJWT, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.uid;
     const email = req.user.email || 'user@dims-sr.local';
 
     // Generate TOTP secret using speakeasy
@@ -307,7 +407,7 @@ router.post('/setup-mfa', verifyJWT, async (req, res) => {
 router.post('/confirm-mfa', verifyJWT, async (req, res) => {
   try {
     const { code } = req.body;
-    const userId = req.user.id;
+    const userId = req.user.uid;
 
     if (!code || !/^\d{6}$/.test(code)) {
       return res.status(400).json({ error: 'Invalid verification code format' });
@@ -354,27 +454,42 @@ router.post('/confirm-mfa', verifyJWT, async (req, res) => {
  * POST /api/user/disable-mfa
  * Disable MFA
  */
-router.post('/disable-mfa', verifyJWT, requireMFA, async (req, res) => {
+router.post('/disable-mfa', verifyJWT, sanitizeInput, async (req, res) => {
   try {
-    const { password } = req.body;
-    const userId = req.user.id;
+    const { password, mfaCode } = req.body;
+    const userId = req.user.uid;
 
     if (!password) {
       return res.status(400).json({ error: 'Password is required to disable MFA' });
     }
 
-    // Verify password
-    // const userResult = await db.query('SELECT password_hash FROM users WHERE id = $1', [userId]);
-    // const passwordMatch = await bcrypt.compare(password, userResult.rows[0].password_hash);
-    // if (!passwordMatch) {
-    //   return res.status(401).json({ error: 'Invalid password' });
-    // }
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userDoc.data();
 
-    // Disable MFA
-    // await db.query('UPDATE users SET mfa_enabled = false, mfa_secret = NULL WHERE id = $1', [userId]);
+    const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
 
-    // Log MFA disable
-    // await logAuditEvent(userId, 'MFA_DISABLED', 'security', userId, req);
+    if (!ensureMfaForSensitiveAction(user, mfaCode, res)) return;
+
+    await db.collection('users').doc(userId).update({
+      mfaEnabled: false,
+      mfaVerified: false,
+      mfaRequired: false,
+      updatedAt: new Date(),
+    });
+
+    await auditLog({
+      userId,
+      action: 'MFA_DISABLED',
+      details: { timestamp: new Date().toISOString() },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       message: 'MFA disabled successfully',

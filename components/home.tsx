@@ -6,20 +6,20 @@ import SimRegistration from './sim-registration';
 import ViewRegisteredSims from './view-registered-sims';
 import SettingsComponent from './settings';
 import TrackOrder from './track-order';
+import MfaSetup from './mfa-setup';
 
 interface HomeProps {
   userData: { cnic: string; email: string };
   onLogout: () => void;
 }
 
-type CurrentView = 'menu' | 'register' | 'view' | 'settings' | 'track';
+type CurrentView = 'menu' | 'register' | 'view' | 'settings' | 'track' | 'mfa-reconfigure';
 
 export default function Home({ userData, onLogout }: HomeProps) {
   const [currentView, setCurrentView] = useState<CurrentView>('menu');
 
   const handleMfaChange = () => {
-    alert('MFA setup will be implemented when connected to backend. Redirect to MFA setup screen.');
-    setCurrentView('menu');
+    setCurrentView('mfa-reconfigure');
   };
 
   return (
@@ -167,6 +167,14 @@ export default function Home({ userData, onLogout }: HomeProps) {
             userData={userData}
             onBack={() => setCurrentView('menu')}
             onMfaChange={handleMfaChange}
+          />
+        )}
+
+        {currentView === 'mfa-reconfigure' && (
+          <MfaSetup
+            email={userData.email}
+            onComplete={() => setCurrentView('menu')}
+            onCancel={() => setCurrentView('settings')}
           />
         )}
       </main>

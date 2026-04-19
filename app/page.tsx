@@ -27,10 +27,11 @@ export default function Page() {
   const handleLoginSubmit = (cnic: string, email: string, tempToken?: string) => {
     setUserData({ cnic, email });
     if (tempToken) {
-      // MFA required, store temp token
       localStorage.setItem('tempToken', tempToken);
+      setCurrentStep('mfa-verify');
+    } else {
+      setCurrentStep('home');
     }
-    setCurrentStep('mfa-verify');
   };
 
   const handleMfaVerify = () => {

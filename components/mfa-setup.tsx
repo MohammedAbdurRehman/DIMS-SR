@@ -7,9 +7,11 @@ import { getApiUrl, getValidAccessToken } from '../lib/utils';
 interface MfaSetupProps {
   email: string;
   onComplete: (secret: string) => void;
+  /** When set (e.g. re-configure from settings), show a way to leave without finishing setup */
+  onCancel?: () => void;
 }
 
-export default function MfaSetup({ email, onComplete }: MfaSetupProps) {
+export default function MfaSetup({ email, onComplete, onCancel }: MfaSetupProps) {
   const [step, setStep] = useState<'display' | 'confirm'>('display');
   const [copied, setCopied] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
@@ -104,6 +106,15 @@ export default function MfaSetup({ email, onComplete }: MfaSetupProps) {
         <div className="bg-card rounded-2xl p-6 sm:p-8 shadow-xl border border-border">
           {step === 'display' && (
             <>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="mb-4 text-sm text-muted-foreground hover:text-foreground font-medium"
+                >
+                  ← Back to settings
+                </button>
+              )}
               {/* Header */}
               <div className="flex justify-center mb-6 sm:mb-8">
                 <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary to-secondary rounded-2xl flex items-center justify-center">
