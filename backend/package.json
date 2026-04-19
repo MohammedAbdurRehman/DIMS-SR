@@ -21,6 +21,7 @@
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.0",
     "fabric-ca-client": "^2.2.0",
+    "fabric-common": "^2.2.0",
     "fabric-network": "^2.2.0",
     "firebase-admin": "^13.0.0",
     "helmet": "^7.1.0",

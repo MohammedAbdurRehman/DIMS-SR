@@ -38,6 +38,9 @@ importers:
       fabric-ca-client:
         specifier: ^2.2.0
         version: 2.2.20
+      fabric-common:
+        specifier: ^2.2.0
+        version: 2.2.20
       fabric-network:
         specifier: ^2.2.0
         version: 2.2.20

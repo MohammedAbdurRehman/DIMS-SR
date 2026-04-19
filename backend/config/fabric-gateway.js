@@ -1,7 +1,9 @@
 /**
  * Hyperledger Fabric — production submission via fabric-network (Fabric 2.x).
  *
- * Required when FABRIC_ENABLED is not "false":
+ * When FABRIC_ENABLED is unset on Vercel (VERCEL=1), Fabric is skipped unless you set FABRIC_ENABLED=true.
+ *
+ * Required when Fabric is enabled (FABRIC_ENABLED not false, and not skipped by VERCEL rule above):
  *   FABRIC_CONNECTION_PROFILE_PATH — path to connection profile JSON (e.g. from test-network)
  *   FABRIC_USER_CREDENTIALS_DIR      — MSP folder for client user (signcerts + keystore)
  *
@@ -15,13 +17,29 @@
 
 const fs = require('fs');
 const path = require('path');
-const { Gateway, Wallets } = require('fabric-network');
 
 function fabricExplicitlyDisabled() {
-  return String(process.env.FABRIC_ENABLED || '').toLowerCase() === 'false';
+  const v = String(process.env.FABRIC_ENABLED || '').trim().toLowerCase();
+  if (v === 'false') return true;
+  if (v === 'true') return false;
+  // On Vercel/serverless, Fabric is opt-in (avoids loading fabric-network unless configured).
+  return process.env.VERCEL === '1';
+}
+
+/**
+ * Load fabric-network only when Fabric is used. Avoids cold-start crashes on
+ * serverless (e.g. Vercel) when FABRIC_ENABLED=false — fabric-common uses dynamic
+ * requires that bundlers often omit unless explicitly pulled in.
+ */
+function loadFabricNetwork() {
+  // Static require so @vercel/node file tracing includes fabric-common impl (it is also
+  // loaded dynamically from fabric-common/lib/Utils.js and can be omitted from the bundle).
+  require('fabric-common/lib/impl/CryptoSuite_ECDSA_AES');
+  return require('fabric-network');
 }
 
 async function buildWalletFromCredentialsDir(credDir, identityLabel, mspId) {
+  const { Wallets } = loadFabricNetwork();
   const wallet = await Wallets.newInMemoryWallet();
   const certPath = path.join(credDir, 'signcerts', 'cert.pem');
   if (!fs.existsSync(certPath)) {
@@ -47,6 +65,7 @@ async function buildWalletFromCredentialsDir(credDir, identityLabel, mspId) {
 }
 
 async function buildWallet() {
+  const { Wallets } = loadFabricNetwork();
   const identityLabel = process.env.FABRIC_IDENTITY_LABEL || 'appUser';
   const mspId = process.env.FABRIC_MSP_ID || 'Org1MSP';
   const walletPath = process.env.FABRIC_WALLET_PATH;
@@ -69,9 +88,18 @@ async function buildWallet() {
  */
 async function submitToBlockchain(data) {
   if (fabricExplicitlyDisabled()) {
-    console.warn('[Fabric] FABRIC_ENABLED=false — ledger submit skipped');
+    const fe = String(process.env.FABRIC_ENABLED || '').trim().toLowerCase();
+    const reason =
+      fe === 'false'
+        ? 'FABRIC_ENABLED=false'
+        : process.env.VERCEL === '1'
+          ? 'Vercel default (set FABRIC_ENABLED=true to submit on-chain)'
+          : 'Fabric disabled';
+    console.warn(`[Fabric] ${reason} — ledger submit skipped`);
     return { skipped: true };
   }
+
+  const { Gateway, Wallets } = loadFabricNetwork();
 
   const ccpPath = process.env.FABRIC_CONNECTION_PROFILE_PATH;
   if (!ccpPath || !fs.existsSync(ccpPath)) {
