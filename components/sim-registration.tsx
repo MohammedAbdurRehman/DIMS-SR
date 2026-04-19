@@ -10,7 +10,7 @@ interface SimRegistrationProps {
   onBack: () => void;
 }
 
-type Step = 'select-network' | 'select-number' | 'payment' | 'address' | 'fingerprint' | 'confirmation';
+type Step = 'select-network' | 'select-number' | 'payment' | 'address' | 'fingerprint' | 'confirmation' | 'success';
 
 export default function SimRegistration({ cnic, onBack }: SimRegistrationProps) {
   const [currentStep, setCurrentStep] = useState<Step>('select-network');
@@ -31,6 +31,7 @@ export default function SimRegistration({ cnic, onBack }: SimRegistrationProps) 
   const [error, setError] = useState('');
   const [confirmationData, setConfirmationData] = useState<{
     transactionId: string;
+    fabricTxId: string | null;
     trackingNumber: string;
   } | null>(null);
 
@@ -132,8 +133,8 @@ export default function SimRegistration({ cnic, onBack }: SimRegistrationProps) 
 
           <div className="bg-primary/10 rounded-lg p-6 mb-6 border border-primary/20 space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">Transaction ID:</span>
-              <span className="font-mono font-bold text-foreground text-sm sm:text-base break-all">{confirmationData.transactionId}</span>
+              <span className="text-muted-foreground">Fabric TX ID:</span>
+              <span className="font-mono font-bold text-foreground text-sm sm:text-base break-all">{confirmationData.fabricTxId || confirmationData.transactionId}</span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Tracking Number:</span>
@@ -262,6 +263,7 @@ export default function SimRegistration({ cnic, onBack }: SimRegistrationProps) 
 
       setConfirmationData({
         transactionId: data.transaction.transactionId,
+        fabricTxId: data.transaction.fabricTxId || null,
         trackingNumber: data.transaction.trackingNumber,
       });
       setCurrentStep('success');
@@ -588,52 +590,6 @@ export default function SimRegistration({ cnic, onBack }: SimRegistrationProps) 
         </div>
       )}
 
-      {/* Step 7: Success */}
-      {currentStep === 'success' && confirmationData && (
-        <div className="bg-card rounded-2xl p-6 sm:p-8 shadow-lg border border-border text-center">
-          <div className="text-green-500 mb-4">
-            <CheckCircle size={64} className="mx-auto" />
-          </div>
-          
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">
-            Order Confirmed!
-          </h1>
-          
-          <p className="text-muted-foreground text-sm sm:text-base mb-6">
-            Your SIM registration has been successfully submitted. You can track your order using the details below.
-          </p>
-
-          <div className="bg-muted/30 rounded-lg p-6 mb-6 space-y-4">
-            <div>
-              <p className="text-sm text-muted-foreground mb-1">Transaction ID</p>
-              <p className="font-bold text-foreground text-lg font-mono">{confirmationData.transactionId}</p>
-            </div>
-            
-            <div>
-              <p className="text-sm text-muted-foreground mb-1">Tracking Number</p>
-              <p className="font-bold text-foreground text-lg font-mono">{confirmationData.trackingNumber}</p>
-            </div>
-          </div>
-
-          <div className="text-sm text-muted-foreground mb-6">
-            <p>You will receive SMS updates on your order status.</p>
-            <p>Estimated delivery: 3-5 business days</p>
-          </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={() => {
-                // Save tracking number to localStorage for easy access
-                localStorage.setItem('lastTrackingNumber', confirmationData.trackingNumber);
-                onComplete();
-              }}
-              className="flex-1 bg-primary text-primary-foreground py-3 rounded-lg font-semibold hover:bg-secondary transition-colors"
-            >
-              Track Order
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

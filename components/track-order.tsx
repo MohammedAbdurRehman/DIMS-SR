@@ -12,7 +12,8 @@ type DisplayStatus = 'Processing' | 'Shipped' | 'In Transit' | 'Delivered';
 
 interface OrderData {
   trackingNumber: string;
-  transactionId: string;
+  fabricTxId: string;
+  transactionId?: string;
   network: string;
   mobileNumber: string;
   status: DisplayStatus;
@@ -110,6 +111,7 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
       const rawStatus = typeof order.status === 'string' ? order.status : 'processing';
       setOrderData({
         trackingNumber: String(order.trackingNumber ?? trimmed),
+        fabricTxId: String(order.fabricTxId ?? order.transactionId ?? ''),
         transactionId: String(order.transactionId ?? ''),
         network: String(order.network ?? 'Unknown'),
         mobileNumber: String(order.mobileNumber ?? ''),
@@ -257,8 +259,8 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
                 <p className="font-mono font-bold text-foreground break-all">{orderData.trackingNumber}</p>
               </div>
               <div className="bg-muted/30 rounded-lg p-4">
-                <p className="text-sm text-muted-foreground mb-1">Transaction ID</p>
-                <p className="font-mono font-bold text-foreground break-all">{orderData.transactionId}</p>
+                <p className="text-sm text-muted-foreground mb-1">Fabric TX ID</p>
+                <p className="font-mono font-bold text-foreground break-all">{orderData.fabricTxId}</p>
               </div>
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Network Provider</p>

@@ -166,6 +166,7 @@ router.get('/track-order/:trackingNumber', async (req, res) => {
         id: orderDoc.id,
         trackingNumber: orderData.trackingNumber,
         transactionId: orderData.transactionId,
+        fabricTxId: orderData.fabricTxId || null,
         network: simData?.networkProvider || 'Unknown',
         mobileNumber: simData?.mobileNumber || 'Unknown',
         status: normalizeShipmentStatus(lastRaw),

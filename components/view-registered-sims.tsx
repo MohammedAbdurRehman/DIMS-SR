@@ -299,11 +299,11 @@ export default function ViewRegisteredSims({ cnic, onBack }: ViewRegisteredSimsP
                 </div>
               </div>
 
-              {/* Transaction ID */}
+              {/* Fabric TX ID */}
               <div className="bg-muted rounded-lg p-3 mt-4">
-                <p className="text-xs text-muted-foreground mb-1">Transaction ID</p>
+                <p className="text-xs text-muted-foreground mb-1">Fabric TX ID</p>
                 <p className="text-sm font-mono text-foreground break-all">
-                  {sim.transactionId}
+                  {sim.fabricTxId || sim.transactionId || 'N/A'}
                 </p>
               </div>
             </div>

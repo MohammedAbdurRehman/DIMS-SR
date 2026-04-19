@@ -43,6 +43,7 @@ export default function SIMRegistrationScreen({ navigation }: any) {
   const [verifyingFingerprint, setVerifyingFingerprint] = useState(false);
   const [confirmationData, setConfirmationData] = useState<{
     transactionId: string;
+    fabricTxId: string | null;
     trackingNumber: string;
   } | null>(null);
 
@@ -204,8 +205,8 @@ export default function SIMRegistrationScreen({ navigation }: any) {
               Your SIM registration request has been submitted and verified by NADRA.
             </Text>
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Transaction ID:</Text>
-              <Text style={styles.infoValue}>{confirmationData.transactionId}</Text>
+              <Text style={styles.infoLabel}>Fabric TX ID:</Text>
+              <Text style={styles.infoValue}>{confirmationData.fabricTxId || confirmationData.transactionId}</Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Tracking Number:</Text>

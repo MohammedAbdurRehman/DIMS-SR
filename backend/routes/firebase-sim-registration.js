@@ -117,9 +117,10 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
 
     const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const trackingNumber = `TRK-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+    let fabricTxId = null;
 
     try {
-      await submitToBlockchain({
+      const fabricResult = await submitToBlockchain({
         action: 'registerSim',
         cnic: user.cnic,
         mobileNumber,
@@ -129,6 +130,7 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
         uid,
         timestamp: new Date().toISOString(),
       });
+      fabricTxId = fabricResult?.fabricTxId || null;
     } catch (fabricError) {
       console.error('Fabric submit failed (registerSim):', fabricError);
       if (String(process.env.FABRIC_ENABLED || '').toLowerCase() !== 'false') {
@@ -145,6 +147,7 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       cnic: user.cnic,
       transactionId,
       trackingNumber,
+      fabricTxId,
       networkProvider: mobileNetwork || user.networkProvider,
       mobileNumber,
       paymentMethod,
@@ -166,6 +169,7 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
     const orderData = {
       uid,
       transactionId,
+      fabricTxId,
       trackingNumber,
       simId: simDocRef.id,
       status: 'confirmed',
@@ -189,6 +193,7 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       mobileNumber,
       networkProvider: mobileNetwork || user.networkProvider,
       transactionId,
+      fabricTxId,
       trackingNumber,
       fingerprintVerified,
       status: 'active',
@@ -220,6 +225,7 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       message: 'SIM registered successfully',
       transaction: {
         transactionId,
+        fabricTxId,
         trackingNumber,
         mobileNumber,
         networkProvider: mobileNetwork || user.networkProvider,
@@ -489,6 +495,7 @@ router.get('/track/:trackingNumber', async (req, res) => {
       order: {
         trackingNumber: order.trackingNumber,
         transactionId: order.transactionId,
+        fabricTxId: order.fabricTxId || null,
         status: order.status,
         orderDate: order.orderDate,
         estimatedDelivery: order.estimatedDelivery,
