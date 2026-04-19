@@ -81,13 +81,21 @@ router.post('/signup', validateSignup, async (req, res) => {
       });
     }
 
-    // Verify user against NADRA database (required)
     const nadraResult = await verifyUserWithNadra(formattedCNIC, name, fatherName, dateOfBirth);
     if (!nadraResult.verified) {
+      const msg = nadraResult.message || '';
+      if (msg.includes('not configured')) {
+        return res.status(503).json({
+          error: 'Identity verification unavailable',
+          message: msg,
+          source: 'nadra-config',
+        });
+      }
       return res.status(403).json({
         error: 'Identity verification failed',
-        message: 'Your details do not match NADRA records. Please ensure your information is accurate.',
-        source: 'nadra-real'
+        message:
+          'Your details do not match NADRA records. Please ensure your information is accurate.',
+        source: 'nadra-real',
       });
     }
 

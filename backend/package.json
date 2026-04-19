@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "nadra": "node nadra-mock-server.js",
-    "nadra:dev": "nodemon nadra-mock-server.js",
-    "start:all": "concurrently \"npm run dev\" \"npm run nadra:dev\""
+    "nadra-adapter": "node nadra-mock-server.js",
+    "nadra-adapter:dev": "nodemon nadra-mock-server.js",
+    "start:all": "concurrently \"npm run dev\" \"npm run nadra-adapter:dev\""
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -22,6 +22,7 @@
     "express-validator": "^7.0.0",
     "fabric-ca-client": "^2.2.0",
     "fabric-network": "^2.2.0",
+    "firebase-admin": "^13.0.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.0",

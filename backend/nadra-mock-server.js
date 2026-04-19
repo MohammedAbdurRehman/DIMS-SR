@@ -1,8 +1,8 @@
 /**
- * NADRA API Server with Real Data Scraping
- * =========================================
- * Fetches real citizen data from https://cnic.sims.pk/
- * and performs actual NADRA verification.
+ * Optional standalone NADRA *adapter* HTTP service (run separately from the main API).
+ * The main backend never embeds citizen data — it calls NADRA_API_BASE_URL only.
+ *
+ * This process may scrape third-party pages; compliance and accuracy are your responsibility.
  *
  * Endpoints:
  *  POST /verify-user         - Verify a citizen's identity by CNIC + demographics

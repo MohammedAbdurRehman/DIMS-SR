@@ -80,9 +80,12 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
         }
         fingerprintVerified = true;
       } catch (fingerprintError) {
-        console.warn('⚠️  NADRA fingerprint verification service unavailable:', fingerprintError.message);
-        console.log(`ℹ️  Fingerprint verification skipped (NADRA service down) - will be verified later`);
-        fingerprintVerified = false; // Mark as pending
+        console.error('NADRA fingerprint verification failed:', fingerprintError.message);
+        return res.status(503).json({
+          error: 'Identity verification service unavailable',
+          message: fingerprintError.message,
+          source: 'nadra-service-error',
+        });
       }
     } else {
       console.log('ℹ️  No fingerprint images provided');
@@ -112,9 +115,29 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       return res.status(400).json({ error: 'Mobile number already registered' });
     }
 
-    // Generate transaction ID and tracking number
     const transactionId = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
     const trackingNumber = `TRK-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
+    try {
+      await submitToBlockchain({
+        action: 'registerSim',
+        cnic: user.cnic,
+        mobileNumber,
+        networkProvider: mobileNetwork || user.networkProvider,
+        transactionId,
+        trackingNumber,
+        uid,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (fabricError) {
+      console.error('Fabric submit failed (registerSim):', fabricError);
+      if (String(process.env.FABRIC_ENABLED || '').toLowerCase() !== 'false') {
+        return res.status(503).json({
+          error: 'Distributed ledger unavailable',
+          message: fabricError.message || 'Could not record registration on Hyperledger Fabric.',
+        });
+      }
+    }
 
     // Create SIM record in Firestore
     const simData = {
@@ -147,13 +170,13 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       simId: simDocRef.id,
       status: 'confirmed',
       orderDate: new Date(),
-      estimatedDelivery: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      estimatedDelivery: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       timeline: [
-        { status: 'confirmed', timestamp: new Date(), description: 'Order confirmed' },
-        { status: 'processing', timestamp: new Date(Date.now() + 2 * 60 * 60 * 1000), description: 'Processing' },
-        { status: 'shipped', timestamp: new Date(Date.now() + 12 * 60 * 60 * 1000), description: 'Shipped' },
-        { status: 'in-transit', timestamp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), description: 'In Transit' },
-        { status: 'delivered', timestamp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), description: 'Delivered' }
+        {
+          status: 'confirmed',
+          timestamp: new Date(),
+          description: 'Order confirmed — further status updates are applied when fulfillment systems update this order.',
+        },
       ],
       createdAt: new Date()
     };
@@ -176,21 +199,6 @@ router.post('/register', verifyJWT, validateSIMRegistration, async (req, res) =>
       registeredSims: updatedSims,
       updatedAt: new Date()
     });
-
-    // Log to blockchain (Hyperledger Fabric)
-    try {
-      await submitToBlockchain({
-        action: 'registerSim',
-        cnic: user.cnic,
-        mobileNumber,
-        networkProvider: mobileNetwork || user.networkProvider,
-        transactionId,
-        timestamp: new Date().toISOString()
-      });
-    } catch (fabricError) {
-      console.error('Fabric logging error:', fabricError);
-      // Continue even if blockchain logging fails - this is a secondary concern
-    }
 
     // Audit log
     await auditLog({
@@ -285,33 +293,51 @@ router.post('/deactivate', verifyJWT, async (req, res) => {
         });
       }
     } catch (nadraError) {
-      console.warn('⚠️  NADRA fingerprint verification unavailable:', nadraError.message);
-      // Continue anyway - we'll proceed with deactivation
+      console.error('NADRA fingerprint verification failed:', nadraError.message);
+      return res.status(503).json({
+        error: 'Identity verification service unavailable',
+        message: nadraError.message,
+        source: 'nadra-service-error',
+      });
     }
 
-    // Find and update the SIM
-    const simSnapshot = await db.collection('sims')
-      .where('uid', '==', uid)
-      .where('id', '==', simId)
-      .limit(1)
-      .get();
-
-    if (simSnapshot.empty) {
+    const simRef = db.collection('sims').doc(simId);
+    const simSnap = await simRef.get();
+    if (!simSnap.exists) {
       return res.status(404).json({ error: 'SIM not found' });
     }
+    const simData = simSnap.data();
+    if (simData.uid !== uid) {
+      return res.status(403).json({ error: 'Not authorized to deactivate this SIM' });
+    }
 
-    const simDoc = simSnapshot.docs[0];
-    const simData = simDoc.data();
+    try {
+      await submitToBlockchain({
+        action: 'deactivateSim',
+        cnic: user.cnic,
+        mobileNumber: simData.mobileNumber,
+        transactionId: simData.transactionId,
+        simId,
+        uid,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (fabricError) {
+      console.error('Fabric submit failed (deactivateSim):', fabricError);
+      if (String(process.env.FABRIC_ENABLED || '').toLowerCase() !== 'false') {
+        return res.status(503).json({
+          error: 'Distributed ledger unavailable',
+          message: fabricError.message || 'Could not record deactivation on Hyperledger Fabric.',
+        });
+      }
+    }
 
-    // Update SIM status
-    await db.collection('sims').doc(simDoc.id).update({
+    await simRef.update({
       status: 'inactive',
       deactivationDate: new Date(),
       fingerprintVerificationStatus: 'verified',
       updatedAt: new Date()
     });
 
-    // Update user's registered SIMs
     const updatedSims = user.registeredSims?.map(sim => {
       if (sim.simId === simId) {
         return { ...sim, status: 'inactive', deactivationDate: new Date().toISOString() };
@@ -323,19 +349,6 @@ router.post('/deactivate', verifyJWT, async (req, res) => {
       registeredSims: updatedSims,
       updatedAt: new Date()
     });
-
-    // Log to blockchain
-    try {
-      await submitToBlockchain({
-        action: 'deactivateSim',
-        cnic: user.cnic,
-        mobileNumber: simData.mobileNumber,
-        transactionId: simData.transactionId,
-        timestamp: new Date().toISOString()
-      });
-    } catch (fabricError) {
-      console.error('Fabric logging error:', fabricError);
-    }
 
     // Audit log
     await auditLog({
@@ -354,7 +367,7 @@ router.post('/deactivate', verifyJWT, async (req, res) => {
     res.json({
       success: true,
       message: 'SIM deactivated successfully',
-      sim: { id: simDoc.id, status: 'inactive' }
+      sim: { id: simId, status: 'inactive' }
     });
 
   } catch (error) {
@@ -372,13 +385,52 @@ router.post('/deactivate/:transactionId', verifyJWT, async (req, res) => {
     const userDoc = await db.collection('users').doc(uid).get();
     const user = userDoc.data();
 
-    // Find the SIM to deactivate
     const simToDeactivate = user.registeredSims?.find(sim => sim.transactionId === transactionId);
     if (!simToDeactivate) {
       return res.status(404).json({ error: 'SIM not found' });
     }
 
-    // Update user's SIM list
+    const simSnapshot = await db.collection('sims')
+      .where('transactionId', '==', transactionId)
+      .limit(1)
+      .get();
+
+    if (simSnapshot.empty) {
+      return res.status(404).json({ error: 'SIM document not found' });
+    }
+
+    const simDoc = simSnapshot.docs[0];
+    const simData = simDoc.data();
+    if (simData.uid !== uid) {
+      return res.status(403).json({ error: 'Not authorized to deactivate this SIM' });
+    }
+
+    try {
+      await submitToBlockchain({
+        action: 'deactivateSim',
+        cnic: user.cnic,
+        mobileNumber: simToDeactivate.mobileNumber,
+        transactionId,
+        simId: simDoc.id,
+        uid,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (fabricError) {
+      console.error('Fabric submit failed (legacy deactivateSim):', fabricError);
+      if (String(process.env.FABRIC_ENABLED || '').toLowerCase() !== 'false') {
+        return res.status(503).json({
+          error: 'Distributed ledger unavailable',
+          message: fabricError.message || 'Could not record deactivation on Hyperledger Fabric.',
+        });
+      }
+    }
+
+    await db.collection('sims').doc(simDoc.id).update({
+      status: 'inactive',
+      deactivationDate: new Date(),
+      updatedAt: new Date(),
+    });
+
     const updatedSims = user.registeredSims.map(sim => {
       if (sim.transactionId === transactionId) {
         return { ...sim, status: 'inactive', deactivationDate: new Date().toISOString() };
@@ -388,35 +440,8 @@ router.post('/deactivate/:transactionId', verifyJWT, async (req, res) => {
 
     await db.collection('users').doc(uid).update({
       registeredSims: updatedSims,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
-
-    // Update SIM document status
-    const simSnapshot = await db.collection('sims')
-      .where('transactionId', '==', transactionId)
-      .limit(1)
-      .get();
-
-    if (!simSnapshot.empty) {
-      await db.collection('sims').doc(simSnapshot.docs[0].id).update({
-        status: 'inactive',
-        deactivationDate: new Date(),
-        updatedAt: new Date()
-      });
-
-      // Log to blockchain
-      try {
-        await submitToBlockchain({
-          action: 'deactivateSim',
-          cnic: user.cnic,
-          mobileNumber: simToDeactivate.mobileNumber,
-          transactionId,
-          timestamp: new Date().toISOString()
-        });
-      } catch (fabricError) {
-        console.error('Fabric logging error:', fabricError);
-      }
-    }
 
     // Audit log
     await auditLog({

@@ -145,28 +145,7 @@ router.get('/track-order/:trackingNumber', async (req, res) => {
     const ordersSnapshot = await db.collection('orders').where('trackingNumber', '==', trackingNumber).limit(1).get();
 
     if (ordersSnapshot.empty) {
-      console.log('No real order found, returning mock order for testing');
-      const now = Date.now();
-      const timeline = [
-        { status: 'Processing', timestamp: new Date(now).toISOString(), description: 'Order is being processed' },
-        { status: 'Shipped', timestamp: new Date(now + 24 * 60 * 60 * 1000).toISOString(), description: 'Order has been shipped' },
-        { status: 'In Transit', timestamp: new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString(), description: 'Order is in transit' },
-        { status: 'Delivered', timestamp: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString(), description: 'Order delivered' },
-      ];
-      return res.json({
-        message: 'Order found (mock data for testing)',
-        order: {
-          id: 'mock-order-id',
-          trackingNumber,
-          transactionId: 'MOCK-' + trackingNumber,
-          network: 'Jazz',
-          mobileNumber: '03001234567',
-          status: 'Processing',
-          date: new Date(now).toISOString(),
-          timeline,
-          deliveryAddress: 'Mock Address, Karachi',
-        },
-      });
+      return res.status(404).json({ error: 'Order not found', message: 'No order matches this tracking number.' });
     }
 
     const orderDoc = ordersSnapshot.docs[0];
@@ -397,40 +376,36 @@ router.post(
 router.post('/setup-mfa', verifyJWT, async (req, res) => {
   try {
     const userId = req.user.uid;
-    const email = req.user.email || 'user@dims-sr.local';
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userDoc.data();
+    const email = user.email || 'user@dims-sr.local';
 
-    // Generate TOTP secret using speakeasy
-    // const speakeasy = require('speakeasy');
-    // const secret = speakeasy.generateSecret({
-    //   name: `DIMS-SR (${email})`,
-    //   issuer: 'DIMS-SR',
-    //   length: 32
-    // });
+    const secret = speakeasy.generateSecret({
+      name: `DIMS-SR (${email})`,
+      issuer: 'DIMS-SR',
+      length: 32,
+    });
 
-    // For mock, create fake secret
-    const secret = {
-      base32: 'JBSWY3DPEBLW64TMMQ======',
-      otpauth_url: `otpauth://totp/DIMS-SR%20(${email})?secret=JBSWY3DPEBLW64TMMQ%3D%3D%3D%3D%3D%3D&issuer=DIMS-SR`,
-    };
-
-    // Generate QR code from otpauth_url
-    // const qrCode = await QRCode.toDataURL(secret.otpauth_url);
-
-    // Store temporary secret (not yet activated)
-    // await db.query(
-    //   'INSERT INTO mfa_setup_temp (user_id, secret, qr_code) VALUES ($1, $2, $3)',
-    //   [userId, secret.base32, qrCode]
-    // );
+    await db.collection('users').doc(userId).update({
+      mfaSecret: secret.base32,
+      mfaEnabled: false,
+      mfaVerified: false,
+      updatedAt: new Date(),
+    });
 
     res.json({
       message: 'MFA setup initiated',
       secret: secret.base32,
       otpauthUrl: secret.otpauth_url,
-      qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(secret.otpauth_url),
+      qrCodeUrl:
+        'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(secret.otpauth_url),
       instructions: [
         '1. Open your authenticator app (Google Authenticator, Microsoft Authenticator, Authy, etc.)',
         '2. Scan the QR code or enter the secret key manually',
-        '3. Confirm by submitting the 6-digit code',
+        '3. Confirm by submitting the 6-digit code via POST /api/user/confirm-mfa',
       ],
     });
   } catch (error) {
@@ -452,32 +427,42 @@ router.post('/confirm-mfa', verifyJWT, async (req, res) => {
       return res.status(400).json({ error: 'Invalid verification code format' });
     }
 
-    // Verify TOTP code
-    // const speakeasy = require('speakeasy');
-    // const mfaSetupResult = await db.query('SELECT secret FROM mfa_setup_temp WHERE user_id = $1', [userId]);
-    // if (mfaSetupResult.rows.length === 0) {
-    //   return res.status(400).json({ error: 'MFA setup not initiated' });
-    // }
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userDoc.data();
+    if (!user.mfaSecret) {
+      return res.status(400).json({ error: 'MFA setup not initiated' });
+    }
 
-    // const verified = speakeasy.totp.verify({
-    //   secret: mfaSetupResult.rows[0].secret,
-    //   encoding: 'base32',
-    //   token: code,
-    //   window: 2
-    // });
-
-    const verified = /^\d{6}$/.test(code); // Mock verification
+    const verified = speakeasy.totp.verify({
+      secret: user.mfaSecret,
+      encoding: 'base32',
+      token: code,
+      window: 2,
+    });
 
     if (!verified) {
       return res.status(401).json({ error: 'Invalid verification code' });
     }
 
-    // Activate MFA
-    // await db.query('UPDATE users SET mfa_enabled = true, mfa_secret = (SELECT secret FROM mfa_setup_temp WHERE user_id = $1) WHERE id = $1', [userId]);
-    // await db.query('DELETE FROM mfa_setup_temp WHERE user_id = $1', [userId]);
+    await db.collection('users').doc(userId).update({
+      mfaEnabled: true,
+      mfaVerified: true,
+      mfaRequired: false,
+      accountStatus: user.accountStatus === 'pending_mfa' ? 'active' : user.accountStatus || 'active',
+      mfaActivatedAt: new Date(),
+      updatedAt: new Date(),
+    });
 
-    // Log MFA setup
-    // await logAuditEvent(userId, 'MFA_ENABLED', 'security', userId, req);
+    await auditLog({
+      userId,
+      action: 'MFA_ENABLED_USER_ROUTE',
+      details: { timestamp: new Date().toISOString() },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.json({
       message: 'MFA enabled successfully',

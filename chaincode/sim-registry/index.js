@@ -259,6 +259,35 @@ class SIMRegistryContract extends Contract {
       message: isValid ? 'CNIC format is valid' : 'Invalid CNIC format',
     });
   }
+
+  /**
+   * Immutable audit record (off-chain Firestore remains source of truth for SIM data).
+   * payloadJson: JSON string of { action, cnic, transactionId, ... }
+   */
+  async recordAudit(ctx, payloadJson) {
+    if (!payloadJson || typeof payloadJson !== 'string') {
+      throw new Error('recordAudit requires a JSON string payload');
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(payloadJson);
+    } catch (e) {
+      throw new Error('Invalid JSON payload for recordAudit');
+    }
+    const txId = ctx.stub.getTxID();
+    const key = `AUDIT_${txId}`;
+    const record = {
+      ...parsed,
+      fabricTxId: txId,
+      committedAt: new Date().toISOString(),
+    };
+    await ctx.stub.putState(key, Buffer.from(JSON.stringify(record)));
+    ctx.stub.setEvent(
+      'AuditRecorded',
+      Buffer.from(JSON.stringify({ fabricTxId: txId, action: parsed.action || 'unknown' }))
+    );
+    return JSON.stringify({ key, fabricTxId: txId });
+  }
 }
 
 module.exports = SIMRegistryContract;

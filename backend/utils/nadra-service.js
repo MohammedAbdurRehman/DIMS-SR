@@ -1,5 +1,16 @@
+/**
+ * NADRA integration
+ *
+ * - If NADRA_API_BASE_URL (or NADRA_ADAPTER_URL) is set → calls the HTTP adapter
+ *   (POST /verify-user, POST /verify-fingerprint, GET /citizen/:cnic).
+ * - If not set → uses built-in mock citizens and mock fingerprint success so the
+ *   project runs without an external NADRA service (FYP / local default).
+ */
+
+const axios = require('axios');
 const crypto = require('crypto');
 
+/** In-process mock citizens — used when no NADRA_API_BASE_URL is configured */
 const MOCK_NADRA_DATA = {
   '34203-6348972-7': {
     cnic: '34203-6348972-7',
@@ -33,9 +44,15 @@ const MOCK_NADRA_DATA = {
   },
 };
 
+function getBaseUrl() {
+  const raw = process.env.NADRA_API_BASE_URL || process.env.NADRA_ADAPTER_URL || '';
+  const trimmed = String(raw).trim().replace(/\/$/, '');
+  return trimmed || null;
+}
+
 function normalizeCNIC(cnic) {
-  const digits = cnic.replace(/\D/g, '');
-  if (digits.length !== 13) return cnic;
+  const digits = String(cnic).replace(/\D/g, '');
+  if (digits.length !== 13) return String(cnic).trim();
   return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
 }
 
@@ -43,12 +60,24 @@ function sha256(data) {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-async function verifyUserWithNadra(cnic, name, fatherName, dateOfBirth) {
+function nadraAxios() {
+  const baseURL = getBaseUrl();
+  if (!baseURL) {
+    return null;
+  }
+  const timeout = parseInt(process.env.NADRA_HTTP_TIMEOUT_MS || '30000', 10);
+  return axios.create({
+    baseURL,
+    timeout,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function verifyUserWithNadraMock(cnic, name, fatherName, dateOfBirth) {
   const normalizedCnic = normalizeCNIC(cnic);
   const citizen = MOCK_NADRA_DATA[normalizedCnic];
 
   if (!citizen) {
-    console.warn('NADRA mock user not found:', normalizedCnic);
     return {
       success: false,
       verified: false,
@@ -56,44 +85,31 @@ async function verifyUserWithNadra(cnic, name, fatherName, dateOfBirth) {
     };
   }
 
-  if (name && citizen.name.toUpperCase() !== name.toUpperCase()) {
-    return {
-      success: false,
-      verified: false,
-      message: 'Name mismatch',
-    };
+  if (name && citizen.name.toUpperCase() !== String(name).toUpperCase()) {
+    return { success: false, verified: false, message: 'Name mismatch' };
   }
 
-  if (fatherName && citizen.fatherName.toUpperCase() !== fatherName.toUpperCase()) {
-    return {
-      success: false,
-      verified: false,
-      message: 'Father name mismatch',
-    };
+  if (fatherName && citizen.fatherName.toUpperCase() !== String(fatherName).toUpperCase()) {
+    return { success: false, verified: false, message: 'Father name mismatch' };
   }
 
   if (dateOfBirth && citizen.dateOfBirth !== dateOfBirth) {
-    return {
-      success: false,
-      verified: false,
-      message: 'Date of birth mismatch',
-    };
+    return { success: false, verified: false, message: 'Date of birth mismatch' };
   }
 
   return {
     success: true,
     verified: true,
-    message: 'User verified successfully',
+    message: 'User verified successfully (mock NADRA)',
     user: citizen,
   };
 }
 
-async function verifyFingerprintWithNadra(cnic, fingerprintImages) {
+function verifyFingerprintWithNadraMock(cnic, fingerprintImages) {
   const normalizedCnic = normalizeCNIC(cnic);
   const citizen = MOCK_NADRA_DATA[normalizedCnic];
 
   if (!citizen) {
-    console.warn('NADRA mock fingerprint user not found:', normalizedCnic);
     return {
       success: false,
       verified: false,
@@ -103,7 +119,9 @@ async function verifyFingerprintWithNadra(cnic, fingerprintImages) {
 
   const images = Array.isArray(fingerprintImages)
     ? fingerprintImages
-    : fingerprintImages ? [fingerprintImages] : [];
+    : fingerprintImages
+      ? [fingerprintImages]
+      : [];
 
   if (images.length === 0) {
     return {
@@ -117,23 +135,106 @@ async function verifyFingerprintWithNadra(cnic, fingerprintImages) {
     success: true,
     verified: true,
     matchPercentage: 95,
-    message: 'Fingerprint verified successfully',
+    message: 'Fingerprint verified successfully (mock NADRA)',
     fingerprintHash: sha256(`${normalizedCnic}_mock_fp`),
     fingerprintCount: images.length,
   };
 }
 
-async function getUserFromNadra(cnic) {
+function getUserFromNadraMock(cnic) {
   const normalizedCnic = normalizeCNIC(cnic);
   const citizen = MOCK_NADRA_DATA[normalizedCnic];
-
   if (!citizen) {
     throw new Error('Citizen not found in mock NADRA database');
   }
+  return { success: true, citizen };
+}
 
+async function verifyUserWithNadra(cnic, name, fatherName, dateOfBirth) {
+  const client = nadraAxios();
+  if (!client) {
+    return verifyUserWithNadraMock(cnic, name, fatherName, dateOfBirth);
+  }
+  try {
+    const { data } = await client.post('/verify-user', {
+      cnic,
+      name,
+      fatherName,
+      dateOfBirth,
+    });
+    return {
+      success: !!data.success,
+      verified: !!data.verified,
+      message: data.message || (data.verified ? 'Verified' : 'Not verified'),
+      user: data.user || data.citizen,
+    };
+  } catch (err) {
+    const msg =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.message ||
+      'NADRA request failed';
+    throw new Error(msg);
+  }
+}
+
+async function verifyFingerprintWithNadra(cnic, fingerprintImages) {
+  const client = nadraAxios();
+  if (!client) {
+    return verifyFingerprintWithNadraMock(cnic, fingerprintImages);
+  }
+  const images = Array.isArray(fingerprintImages)
+    ? fingerprintImages
+    : fingerprintImages
+      ? [fingerprintImages]
+      : [];
+  if (images.length === 0) {
+    return {
+      success: false,
+      verified: false,
+      message: 'No fingerprint images provided',
+    };
+  }
+  try {
+    const { data } = await client.post('/verify-fingerprint', {
+      cnic,
+      fingerprintImages: images,
+    });
+    return {
+      success: !!data.success,
+      verified: !!data.verified,
+      message: data.message || (data.verified ? 'Fingerprint verified' : 'Fingerprint not verified'),
+      matchPercentage: data.matchPercentage,
+      fingerprintHash: data.fingerprintHash,
+      fingerprintCount: data.fingerprintCount ?? images.length,
+    };
+  } catch (err) {
+    const msg =
+      err.response?.data?.message ||
+      err.response?.data?.error ||
+      err.message ||
+      'NADRA fingerprint request failed';
+    throw new Error(msg);
+  }
+}
+
+async function getUserFromNadra(cnic) {
+  const client = nadraAxios();
+  if (!client) {
+    return getUserFromNadraMock(cnic);
+  }
+  const normalized = String(cnic).replace(/\D/g, '');
+  const formatted =
+    normalized.length === 13
+      ? `${normalized.slice(0, 5)}-${normalized.slice(5, 12)}-${normalized.slice(12)}`
+      : cnic;
+  const { data } = await client.get(`/citizen/${encodeURIComponent(formatted)}`);
+  if (!data || (!data.citizen && !data.success)) {
+    throw new Error('Citizen not found');
+  }
   return {
     success: true,
-    citizen,
+    citizen: data.citizen || data,
   };
 }
 
@@ -141,4 +242,5 @@ module.exports = {
   verifyUserWithNadra,
   verifyFingerprintWithNadra,
   getUserFromNadra,
+  getBaseUrl,
 };

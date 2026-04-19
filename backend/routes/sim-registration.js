@@ -269,36 +269,10 @@ router.post(
  * Get all SIMs registered by user
  */
 router.get('/registered', verifyJWT, async (req, res) => {
-  try {
-    const cnic = req.user.cnic;
-
-    // Query Hyperledger Fabric
-    // const result = await fabricClient.evaluateTransaction(
-    //   'getSIMsByCNIC',
-    //   cnic
-    // );
-    // const sims = JSON.parse(result);
-
-    // Mock response
-    const sims = [
-      {
-        simId: 'SIM_1234567890',
-        simNumber: '03001234567',
-        operator: 'Jazz',
-        status: 'active',
-        registrationDate: new Date().toISOString(),
-      },
-    ];
-
-    res.json({
-      message: 'SIMs retrieved successfully',
-      count: sims.length,
-      sims,
-    });
-  } catch (error) {
-    console.error('[Error] Fetching SIMs:', error);
-    res.status(500).json({ error: 'Failed to fetch SIMs' });
-  }
+  return res.status(501).json({
+    error: 'Route not implemented',
+    message: 'This legacy router is not mounted by the main server. Use GET /api/sim/my-sims (Firebase-backed).',
+  });
 });
 
 /**
@@ -306,46 +280,10 @@ router.get('/registered', verifyJWT, async (req, res) => {
  * Track SIM registration status
  */
 router.get('/track/:trackingNumber', async (req, res) => {
-  try {
-    const { trackingNumber } = req.params;
-
-    if (!trackingNumber || trackingNumber.length < 10) {
-      return res.status(400).json({ error: 'Invalid tracking number' });
-    }
-
-    // Query database for tracking status
-    // const result = await db.query(
-    //   'SELECT * FROM blockchain_events WHERE transaction_id = $1 OR tracking_number = $1',
-    //   [trackingNumber]
-    // );
-    // if (result.rows.length === 0) {
-    //   return res.status(404).json({ error: 'Tracking number not found' });
-    // }
-    // const order = result.rows[0];
-
-    // Mock response
-    const order = {
-      trackingNumber,
-      transactionId: uuidv4(),
-      status: 'in_transit',
-      mobileNetwork: 'Jazz',
-      mobileNumber: '03001234567',
-      timeline: [
-        { step: 'Processing', date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), completed: true },
-        { step: 'Shipped', date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), completed: true },
-        { step: 'In Transit', date: new Date().toISOString(), completed: true },
-        { step: 'Delivered', date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), completed: false },
-      ],
-    };
-
-    res.json({
-      message: 'Order status retrieved',
-      order,
-    });
-  } catch (error) {
-    console.error('[Error] Tracking SIM:', error);
-    res.status(500).json({ error: 'Failed to track order' });
-  }
+  return res.status(501).json({
+    error: 'Route not implemented',
+    message: 'Use GET /api/user/track-order/:trackingNumber or GET /api/sim/track/:trackingNumber (Firebase-backed).',
+  });
 });
 
 /**
@@ -353,29 +291,10 @@ router.get('/track/:trackingNumber', async (req, res) => {
  * Check if user can register more SIMs
  */
 router.get('/active-count', verifyJWT, async (req, res) => {
-  try {
-    const cnic = req.user.cnic;
-
-    // Query Hyperledger Fabric
-    // const result = await fabricClient.evaluateTransaction(
-    //   'getActiveSIMCount',
-    //   cnic
-    // );
-    // const countData = JSON.parse(result);
-
-    // Mock response
-    const countData = {
-      cnic,
-      activeSIMCount: 3,
-      canRegisterMore: true,
-      remainingSlots: 2,
-    };
-
-    res.json(countData);
-  } catch (error) {
-    console.error('[Error] Checking SIM Count:', error);
-    res.status(500).json({ error: 'Failed to check SIM count' });
-  }
+  return res.status(501).json({
+    error: 'Route not implemented',
+    message: 'Compute active SIM count from GET /api/sim/my-sims or user profile (Firebase-backed).',
+  });
 });
 
 module.exports = router;

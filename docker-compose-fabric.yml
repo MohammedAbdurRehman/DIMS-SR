@@ -1,3 +1,5 @@
+# Legacy skeleton — requires genesis blocks, MSP, and channel artifacts under ./fabric-network/
+# For a supported path, use Hyperledger Fabric Samples test-network and see fabric/README.md
 version: '3.8'
 
 networks:

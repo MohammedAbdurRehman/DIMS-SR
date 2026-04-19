@@ -3,7 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-// Import NADRA mock server logic
+// Optional standalone NADRA adapter (same app as `pnpm run nadra-adapter` in backend/)
 const nadraApp = require('../nadra-mock-server');
 
 const app = express();

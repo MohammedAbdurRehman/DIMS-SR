@@ -18,6 +18,7 @@ export default function MfaSetup({ email, onComplete, onCancel }: MfaSetupProps)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [manualEntryKey, setManualEntryKey] = useState('');
 
   useEffect(() => {
     const fetchMfaSetup = async () => {
@@ -40,6 +41,9 @@ export default function MfaSetup({ email, onComplete, onCancel }: MfaSetupProps)
 
         if (response.ok) {
           setQrCodeUrl(data.qrCode);
+          if (typeof data.manualEntry === 'string' && data.manualEntry) {
+            setManualEntryKey(data.manualEntry);
+          }
         } else {
           setError(data.error || 'Failed to setup MFA');
         }
@@ -51,10 +55,8 @@ export default function MfaSetup({ email, onComplete, onCancel }: MfaSetupProps)
     fetchMfaSetup();
   }, []);
 
-  const secret = 'JBSWY3DPEBLW64TMMQ======';
-  const manualEntryKey = 'DIMS-SR-2024-' + Math.random().toString(36).substring(7).toUpperCase();
-
   const handleCopySecret = () => {
+    if (!manualEntryKey) return;
     navigator.clipboard.writeText(manualEntryKey);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -159,12 +161,13 @@ export default function MfaSetup({ email, onComplete, onCancel }: MfaSetupProps)
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-xs sm:text-sm font-mono bg-input text-foreground p-3 rounded border border-border break-all">
-                    {manualEntryKey}
+                    {manualEntryKey || (qrCodeUrl ? 'Loading secret…' : '—')}
                   </code>
                   <button
                     type="button"
                     onClick={handleCopySecret}
-                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
+                    disabled={!manualEntryKey}
+                    className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded disabled:opacity-40"
                   >
                     {copied ? (
                       <Check size={20} className="text-primary" />
