@@ -1,24 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Mail, Lock, Eye, EyeOff, Shield } from 'lucide-react';
 import { getApiUrl } from '../lib/utils';
 
 interface LoginProps {
   onSubmit: (cnic: string, email: string, tempToken?: string) => void;
   onSignupClick: () => void;
+  onForgotPassword?: () => void;
 }
 
-export default function Login({ onSubmit, onSignupClick }: LoginProps) {
+export default function Login({ onSubmit, onSignupClick, onForgotPassword }: LoginProps) {
   const [cnic, setCnic] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    try {
+      const n = sessionStorage.getItem('loginNotice');
+      if (n) {
+        setNotice(n);
+        sessionStorage.removeItem('loginNotice');
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setLoading(true);
 
     try {
@@ -40,32 +55,55 @@ export default function Login({ onSubmit, onSignupClick }: LoginProps) {
         return;
       }
 
-      // Make API call to backend
+      const digits = cnic.replace(/\D/g, '');
+      const formattedCnic =
+        digits.length === 13
+          ? `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`
+          : cnic;
+
       const response = await fetch(`${getApiUrl()}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ cnic, password }),
+        body: JSON.stringify({ cnic: formattedCnic, password }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Login failed');
+      let data: Record<string, unknown> = {};
+      try {
+        data = (await response.json()) as Record<string, unknown>;
+      } catch {
+        setError('Invalid response from server. Check API URL / network.');
         setLoading(false);
         return;
       }
 
+      if (!response.ok) {
+        const msg =
+          typeof data.error === 'string'
+            ? data.error
+            : typeof data.message === 'string'
+              ? data.message
+              : 'Login failed';
+        setError(msg);
+        setLoading(false);
+        return;
+      }
+
+      const user = data.user as { email?: string } | undefined;
+      const email = user?.email || '';
+
       if (data.mfaRequired) {
-        // Handle MFA
-        localStorage.setItem('tempToken', data.tempToken);
-        onSubmit(cnic, data.user.email, data.tempToken);
+        localStorage.setItem('tempToken', data.tempToken as string);
+        onSubmit(cnic, email, data.tempToken as string);
       } else {
-        // Successful login
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        onSubmit(cnic, data.user.email);
+        if (typeof data.accessToken === 'string') {
+          localStorage.setItem('accessToken', data.accessToken);
+        }
+        if (typeof data.refreshToken === 'string') {
+          localStorage.setItem('refreshToken', data.refreshToken);
+        }
+        onSubmit(cnic, email);
       }
     } catch (error) {
       setError('Network error. Please try again.');
@@ -94,6 +132,12 @@ export default function Login({ onSubmit, onSignupClick }: LoginProps) {
           <p className="text-muted-foreground text-center text-xs sm:text-sm mb-6 sm:mb-8">
             Sign in to access your account
           </p>
+
+          {notice && (
+            <div className="bg-green-500/10 border border-green-600/30 rounded-lg p-3 mb-4 text-green-800 dark:text-green-400 text-sm">
+              {notice}
+            </div>
+          )}
 
           {error && (
             <div className="bg-destructive/10 border border-destructive rounded-lg p-3 mb-4 text-destructive text-sm">
@@ -153,6 +197,18 @@ export default function Login({ onSubmit, onSignupClick }: LoginProps) {
                 </button>
               </div>
             </div>
+
+            {onForgotPassword && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={onForgotPassword}
+                  className="text-sm text-primary hover:text-secondary font-semibold"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
 
             {/* Submit Button */}
             <button

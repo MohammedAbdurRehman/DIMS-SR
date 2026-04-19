@@ -44,6 +44,37 @@ function ensureMfaForSensitiveAction(user, mfaCode, res) {
   return true;
 }
 
+function timelineEntryToJson(entry) {
+  if (!entry) return null;
+  const ts = entry.timestamp;
+  const timestamp =
+    ts && typeof ts.toDate === 'function'
+      ? ts.toDate().toISOString()
+      : typeof ts === 'string'
+        ? ts
+        : ts instanceof Date
+          ? ts.toISOString()
+          : null;
+  return {
+    status: entry.status,
+    description: entry.description,
+    timestamp,
+  };
+}
+
+function normalizeShipmentStatus(raw) {
+  const key = String(raw || 'processing').toLowerCase().replace(/\s+/g, '-');
+  const map = {
+    confirmed: 'Processing',
+    processing: 'Processing',
+    shipped: 'Shipped',
+    'in-transit': 'In Transit',
+    intransit: 'In Transit',
+    delivered: 'Delivered',
+  };
+  return map[key] || 'Processing';
+}
+
 /**
  * GET /api/user/profile
  * Get current user profile and registered SIMs
@@ -106,30 +137,33 @@ router.get('/profile', verifyJWT, async (req, res) => {
  */
 router.get('/track-order/:trackingNumber', async (req, res) => {
   try {
-    const { trackingNumber } = req.params;
+    const trackingNumber = decodeURIComponent(req.params.trackingNumber || '').trim();
+    if (!trackingNumber) {
+      return res.status(400).json({ error: 'Tracking number is required' });
+    }
 
-    // Find order by tracking number
     const ordersSnapshot = await db.collection('orders').where('trackingNumber', '==', trackingNumber).limit(1).get();
 
     if (ordersSnapshot.empty) {
-      // Return mock order for testing if no real orders exist
       console.log('No real order found, returning mock order for testing');
+      const now = Date.now();
+      const timeline = [
+        { status: 'Processing', timestamp: new Date(now).toISOString(), description: 'Order is being processed' },
+        { status: 'Shipped', timestamp: new Date(now + 24 * 60 * 60 * 1000).toISOString(), description: 'Order has been shipped' },
+        { status: 'In Transit', timestamp: new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString(), description: 'Order is in transit' },
+        { status: 'Delivered', timestamp: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString(), description: 'Order delivered' },
+      ];
       return res.json({
         message: 'Order found (mock data for testing)',
         order: {
           id: 'mock-order-id',
-          trackingNumber: trackingNumber,
+          trackingNumber,
           transactionId: 'MOCK-' + trackingNumber,
           network: 'Jazz',
           mobileNumber: '03001234567',
           status: 'Processing',
-          date: new Date().toISOString(),
-          timeline: [
-            { status: 'Processing', timestamp: new Date(), description: 'Order is being processed' },
-            { status: 'Shipped', timestamp: new Date(Date.now() + 24 * 60 * 60 * 1000), description: 'Order has been shipped' },
-            { status: 'In Transit', timestamp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), description: 'Order is in transit' },
-            { status: 'Delivered', timestamp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), description: 'Order delivered' }
-          ],
+          date: new Date(now).toISOString(),
+          timeline,
           deliveryAddress: 'Mock Address, Karachi',
         },
       });
@@ -138,9 +172,14 @@ router.get('/track-order/:trackingNumber', async (req, res) => {
     const orderDoc = ordersSnapshot.docs[0];
     const orderData = orderDoc.data();
 
-    // Get associated SIM data
     const simDoc = await db.collection('sims').doc(orderData.simId).get();
     const simData = simDoc.exists ? simDoc.data() : null;
+
+    const rawTimeline = Array.isArray(orderData.timeline) ? orderData.timeline : [];
+    const timelineJson = rawTimeline.map(timelineEntryToJson).filter(Boolean);
+    const lastRaw = rawTimeline.length
+      ? rawTimeline[rawTimeline.length - 1]?.status
+      : orderData.status;
 
     res.json({
       message: 'Order found',
@@ -150,9 +189,9 @@ router.get('/track-order/:trackingNumber', async (req, res) => {
         transactionId: orderData.transactionId,
         network: simData?.networkProvider || 'Unknown',
         mobileNumber: simData?.mobileNumber || 'Unknown',
-        status: orderData.timeline?.[orderData.timeline.length - 1]?.status || 'Processing',
+        status: normalizeShipmentStatus(lastRaw),
         date: orderData.orderDate?.toDate?.()?.toISOString() || orderData.orderDate,
-        timeline: orderData.timeline || [],
+        timeline: timelineJson,
         deliveryAddress: orderData.deliveryAddress,
       },
     });
@@ -454,7 +493,13 @@ router.post('/confirm-mfa', verifyJWT, async (req, res) => {
  * POST /api/user/disable-mfa
  * Disable MFA
  */
-router.post('/disable-mfa', verifyJWT, sanitizeInput, async (req, res) => {
+router.post(
+  '/disable-mfa',
+  verifyJWT,
+  sanitizeInput,
+  validateResetMfa,
+  handleValidationErrors,
+  async (req, res) => {
   try {
     const { password, mfaCode } = req.body;
     const userId = req.user.uid;

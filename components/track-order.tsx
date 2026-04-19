@@ -8,14 +8,41 @@ interface TrackOrderProps {
   onBack: () => void;
 }
 
+type DisplayStatus = 'Processing' | 'Shipped' | 'In Transit' | 'Delivered';
+
 interface OrderData {
   trackingNumber: string;
   transactionId: string;
   network: string;
   mobileNumber: string;
-  status: 'Processing' | 'Shipped' | 'In Transit' | 'Delivered';
+  status: DisplayStatus;
   date: string;
   lastUpdate?: string;
+}
+
+function normalizeStatus(raw: string | undefined): DisplayStatus {
+  const key = String(raw || 'processing')
+    .toLowerCase()
+    .replace(/\s+/g, '-');
+  const map: Record<string, DisplayStatus> = {
+    confirmed: 'Processing',
+    processing: 'Processing',
+    shipped: 'Shipped',
+    'in-transit': 'In Transit',
+    intransit: 'In Transit',
+    delivered: 'Delivered',
+  };
+  return map[key] || 'Processing';
+}
+
+function formatDatePart(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'string') return value.split('T')[0];
+  if (typeof value === 'object' && value !== null && 'seconds' in value) {
+    const s = (value as { seconds: number }).seconds;
+    return new Date(s * 1000).toISOString().split('T')[0];
+  }
+  return undefined;
 }
 
 export default function TrackOrder({ onBack }: TrackOrderProps) {
@@ -25,7 +52,6 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Load last tracking number if available
     const lastTracking = localStorage.getItem('lastTrackingNumber');
     if (lastTracking) {
       setTrackingNumber(lastTracking);
@@ -37,41 +63,76 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
     setError('');
     setOrderData(null);
 
-    if (!trackingNumber.trim()) {
+    const trimmed = trackingNumber.trim();
+    if (!trimmed) {
       setError('Please enter a tracking number');
       return;
     }
 
     setLoading(true);
     try {
-      const response = await fetch(`${getApiUrl()}/api/user/track-order/${trackingNumber.trim()}`);
-      const data = await response.json();
+      const base = getApiUrl();
+      const path = `${base}/api/user/track-order/${encodeURIComponent(trimmed)}`;
+      const response = await fetch(path);
 
-      if (response.ok) {
-        setOrderData({
-          trackingNumber: data.order.trackingNumber,
-          transactionId: data.order.transactionId,
-          network: data.order.network,
-          mobileNumber: data.order.mobileNumber,
-          status: data.order.status,
-          date: data.order.date?.split('T')[0] || new Date().toLocaleDateString(),
-          lastUpdate: data.order.timeline?.[data.order.timeline.length - 1]?.timestamp?.split('T')[0],
-        });
-      } else {
-        setError(data.error || 'Order not found');
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        setError(
+          'Could not reach the tracking service. If you are on production, set NEXT_PUBLIC_API_URL to your API base URL (or configure Next.js rewrites to proxy /api to the backend).'
+        );
+        return;
       }
-    } catch (error) {
-      setError('Network error. Please try again.');
+
+      let data: Record<string, unknown> = {};
+      try {
+        data = (await response.json()) as Record<string, unknown>;
+      } catch {
+        setError('Invalid response from server.');
+        return;
+      }
+
+      if (!response.ok) {
+        setError(typeof data.error === 'string' ? data.error : 'Order not found');
+        return;
+      }
+
+      const order = data.order as Record<string, unknown> | undefined;
+      if (!order || typeof order !== 'object') {
+        setError('Unexpected response: missing order data');
+        return;
+      }
+
+      const timeline = Array.isArray(order.timeline) ? order.timeline : [];
+      const lastTs = timeline.length
+        ? (timeline[timeline.length - 1] as Record<string, unknown>)?.timestamp
+        : undefined;
+
+      const rawStatus = typeof order.status === 'string' ? order.status : 'processing';
+      setOrderData({
+        trackingNumber: String(order.trackingNumber ?? trimmed),
+        transactionId: String(order.transactionId ?? ''),
+        network: String(order.network ?? 'Unknown'),
+        mobileNumber: String(order.mobileNumber ?? ''),
+        status: normalizeStatus(rawStatus),
+        date:
+          formatDatePart(order.date) ||
+          (typeof order.date === 'string' ? order.date.split('T')[0] : new Date().toLocaleDateString()),
+        lastUpdate: formatDatePart(lastTs),
+      });
+    } catch {
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusSteps = (currentStatus: string) => {
-    const steps = ['Processing', 'Shipped', 'In Transit', 'Delivered'];
+  const getStatusSteps = (currentStatus: DisplayStatus) => {
+    const steps: DisplayStatus[] = ['Processing', 'Shipped', 'In Transit', 'Delivered'];
+    const idx = steps.indexOf(currentStatus);
+    const safeIdx = idx >= 0 ? idx : 0;
     return steps.map((step, index) => ({
       label: step,
-      completed: steps.indexOf(step) <= steps.indexOf(currentStatus),
+      completed: index <= safeIdx,
       current: step === currentStatus,
     }));
   };
@@ -102,21 +163,18 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
       </button>
 
       <div className="bg-card rounded-2xl p-6 sm:p-8 shadow-lg border border-border">
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">
-          Track Your Order
-        </h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">Track Your Order</h1>
         <p className="text-muted-foreground text-sm sm:text-base mb-6 sm:mb-8">
-          Enter your tracking number to check the status of your SIM registration
+          Enter your tracking number from your order confirmation (e.g. TRK-…)
         </p>
 
-        {/* Search Form */}
         <form onSubmit={handleSearch} className="mb-8">
           <div className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
               value={trackingNumber}
               onChange={(e) => setTrackingNumber(e.target.value)}
-              placeholder="Enter tracking number (e.g., TRACK-ABC123)"
+              placeholder="Paste tracking number"
               className="flex-1 px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent text-sm sm:text-base bg-input text-foreground placeholder-muted-foreground"
             />
             <button
@@ -135,10 +193,8 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
           </div>
         )}
 
-        {/* Order Details */}
         {orderData && (
           <div className="space-y-6">
-            {/* Status Overview */}
             <div className="bg-primary/10 rounded-lg p-6 border border-primary/20">
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -148,14 +204,13 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
                     {orderData.status}
                   </p>
                 </div>
-                <p className="text-right">
+                <div className="text-right">
                   <p className="text-sm text-muted-foreground">Last Updated</p>
-                  <p className="font-semibold text-foreground">{orderData.lastUpdate}</p>
-                </p>
+                  <p className="font-semibold text-foreground">{orderData.lastUpdate ?? '—'}</p>
+                </div>
               </div>
             </div>
 
-            {/* Progress Timeline */}
             <div>
               <p className="text-sm font-semibold text-foreground mb-4">Shipment Progress</p>
               <div className="space-y-3">
@@ -172,17 +227,19 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
                         {step.completed ? '✓' : index + 1}
                       </div>
                       {index < 3 && (
-                        <div
-                          className={`w-1 h-12 ${
-                            step.completed ? 'bg-primary' : 'bg-muted'
-                          }`}
-                        />
+                        <div className={`w-1 h-12 ${step.completed ? 'bg-primary' : 'bg-muted'}`} />
                       )}
                     </div>
                     <div className="flex-1">
-                      <p className={`font-semibold ${
-                        step.current ? 'text-primary' : step.completed ? 'text-foreground' : 'text-muted-foreground'
-                      }`}>
+                      <p
+                        className={`font-semibold ${
+                          step.current
+                            ? 'text-primary'
+                            : step.completed
+                              ? 'text-foreground'
+                              : 'text-muted-foreground'
+                        }`}
+                      >
                         {step.label}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -194,28 +251,23 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
               </div>
             </div>
 
-            {/* Order Information */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Tracking Number</p>
                 <p className="font-mono font-bold text-foreground break-all">{orderData.trackingNumber}</p>
               </div>
-
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Transaction ID</p>
                 <p className="font-mono font-bold text-foreground break-all">{orderData.transactionId}</p>
               </div>
-
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Network Provider</p>
                 <p className="font-bold text-foreground">{orderData.network}</p>
               </div>
-
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Mobile Number</p>
                 <p className="font-mono font-bold text-foreground">{orderData.mobileNumber}</p>
               </div>
-
               <div className="bg-muted/30 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground mb-1">Order Date</p>
                 <p className="font-bold text-foreground">{orderData.date}</p>
@@ -224,7 +276,8 @@ export default function TrackOrder({ onBack }: TrackOrderProps) {
 
             <div className="bg-secondary/10 rounded-lg p-4 border border-secondary/20">
               <p className="text-sm text-foreground">
-                <strong>Note:</strong> You will receive a notification once your SIM is delivered. Keep your tracking number safe for reference.
+                <strong>Note:</strong> Keep your tracking number for reference. Status updates when the order is
+                updated in the system.
               </p>
             </div>
           </div>

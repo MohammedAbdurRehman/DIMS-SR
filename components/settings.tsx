@@ -40,6 +40,9 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  /** Security tab: reset authenticator vs turn off MFA */
+  const [securityAction, setSecurityAction] = useState<'reconfigure' | 'disable'>('reconfigure');
+
   const resetStatus = () => {
     setError('');
     setSuccess('');
@@ -64,6 +67,12 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
           },
         };
       case 'mfa':
+        if (securityAction === 'disable') {
+          return {
+            endpoint: '/api/user/disable-mfa',
+            body: { password: currentPassword, ...mfa },
+          };
+        }
         return {
           endpoint: '/api/user/reset-mfa',
           body: { password: currentPassword, ...mfa },
@@ -115,7 +124,7 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      if (activeTab === 'mfa' && onMfaChange) {
+      if (activeTab === 'mfa' && securityAction === 'reconfigure' && onMfaChange) {
         onMfaChange();
       }
       return;
@@ -176,6 +185,7 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
                 key={tab}
                 onClick={() => {
                   setActiveTab(tab);
+                  if (tab === 'mfa') setSecurityAction('reconfigure');
                   resetStatus();
                 }}
                 className={`flex-1 py-2 text-sm font-bold rounded-lg capitalize transition-all ${
@@ -194,7 +204,13 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
               <ShieldCheck size={48} className="text-primary mx-auto" />
               <h2 className="text-2xl font-bold">Verification Required</h2>
               <p className="text-muted-foreground text-sm">
-                Enter the code from your app to authorize this {activeTab} change.
+                Enter the code from your app to authorize this{' '}
+                {activeTab === 'mfa'
+                  ? securityAction === 'disable'
+                    ? 'MFA disable'
+                    : 'MFA reset'
+                  : `${activeTab} change`}
+                .
               </p>
 
               <input
@@ -326,16 +342,49 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
               )}
 
               {activeTab === 'mfa' && (
-                <div className="text-center py-6 space-y-6">
+                <div className="text-center py-4 space-y-6">
                   <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto">
                     <Check size={32} className="text-green-600" />
                   </div>
-                  <div>
-                    <p className="font-bold text-lg">MFA is Active</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      To re-configure your authenticator app, we must first verify your password.
-                    </p>
+                  <p className="font-bold text-lg">Multi-factor authentication</p>
+
+                  <div className="flex bg-muted p-1 rounded-xl border border-border text-sm font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSecurityAction('reconfigure');
+                        resetStatus();
+                      }}
+                      className={`flex-1 py-2 rounded-lg transition-all ${
+                        securityAction === 'reconfigure'
+                          ? 'bg-background shadow-sm text-primary'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      Re-configure app
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSecurityAction('disable');
+                        resetStatus();
+                      }}
+                      className={`flex-1 py-2 rounded-lg transition-all ${
+                        securityAction === 'disable'
+                          ? 'bg-background shadow-sm text-destructive'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      Disable MFA
+                    </button>
                   </div>
+
+                  <p className="text-sm text-muted-foreground text-left">
+                    {securityAction === 'reconfigure'
+                      ? 'Generate a new QR code and set up your authenticator again. Enter your account password to continue. If MFA is on, you will be asked for a code.'
+                      : 'Turn off MFA for this account. You will need your password and, if MFA is enabled, a valid app code.'}
+                  </p>
+
                   <form onSubmit={handleInitiateChange} className="space-y-4 text-left">
                     <input
                       type="password"
@@ -347,9 +396,13 @@ export default function Settings({ userData, onBack, onMfaChange }: SettingsProp
                     />
                     <button
                       type="submit"
-                      className="w-full bg-secondary text-secondary-foreground py-4 rounded-xl font-bold"
+                      className={`w-full py-4 rounded-xl font-bold ${
+                        securityAction === 'disable'
+                          ? 'bg-destructive text-destructive-foreground hover:opacity-90'
+                          : 'bg-secondary text-secondary-foreground'
+                      }`}
                     >
-                      Verify & Re-configure
+                      {securityAction === 'disable' ? 'Disable MFA' : 'Verify & Re-configure'}
                     </button>
                   </form>
                 </div>

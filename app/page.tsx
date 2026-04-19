@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Login from '@/components/login';
 import Signup from '@/components/signup';
 import MfaSetup from '@/components/mfa-setup';
 import MfaVerification from '@/components/mfa-verification';
 import Home from '@/components/home';
+import ForgotPassword from '@/components/forgot-password';
 
-type AuthStep = 'login' | 'signup' | 'mfa-setup' | 'mfa-verify' | 'home';
+type AuthStep = 'login' | 'signup' | 'mfa-setup' | 'mfa-verify' | 'forgot-password' | 'home';
 
 export default function Page() {
   const [currentStep, setCurrentStep] = useState<AuthStep>('login');
@@ -50,6 +51,13 @@ export default function Page() {
         <Login
           onSubmit={handleLoginSubmit}
           onSignupClick={() => setCurrentStep('signup')}
+          onForgotPassword={() => setCurrentStep('forgot-password')}
+        />
+      )}
+      {currentStep === 'forgot-password' && (
+        <ForgotPassword
+          onBack={() => setCurrentStep('login')}
+          onSuccess={() => setCurrentStep('login')}
         />
       )}
       {currentStep === 'signup' && (

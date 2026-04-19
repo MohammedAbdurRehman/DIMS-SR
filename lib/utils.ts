@@ -5,14 +5,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Get API URL - works for both local development and Vercel deployment
+/**
+ * Base URL for backend API calls from the browser.
+ * - Localhost: defaults to http://localhost:3001 (or NEXT_PUBLIC_API_URL).
+ * - Production: returns '' so requests go to the same origin as the Next app; configure
+ *   `next.config.mjs` rewrites using NEXT_PUBLIC_API_URL (or BACKEND_PROXY_URL) to proxy `/api/*` to the real API.
+ * - If NEXT_PUBLIC_API_URL is set on any host, use it directly (requires CORS on the API).
+ */
 export function getApiUrl(): string {
-  // In Vercel/production, API routes are on the same domain
-  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return '';
+  const fromEnv = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_API_URL?.trim()) || ''
+  if (fromEnv) {
+    return fromEnv.replace(/\/$/, '')
   }
-  // In local development, use the configured API URL
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'localhost' || h === '127.0.0.1') {
+      return 'http://localhost:3001'
+    }
+    return ''
+  }
+  return ''
 }
 
 function base64UrlDecode(base64Url: string): string {

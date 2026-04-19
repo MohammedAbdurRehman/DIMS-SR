@@ -5,10 +5,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { validateSignup, validateLogin } = require('../middleware/validation');
+const {
+  validateSignup,
+  validateLogin,
+  validateForgotPasswordRequest,
+  validatePasswordResetConfirm,
+  sanitizeInput,
+  handleValidationErrors,
+} = require('../middleware/validation');
 const { auditLog } = require('../utils/audit-logger');
 const { verifyJWT } = require('../middleware/auth');
 const { verifyUserWithNadra } = require('../utils/nadra-service');
+
+function formatCnicInput(cnic) {
+  const normalizedCNIC = String(cnic).replace(/\D/g, '');
+  if (normalizedCNIC.length !== 13) return null;
+  return `${normalizedCNIC.slice(0, 5)}-${normalizedCNIC.slice(5, 12)}-${normalizedCNIC.slice(12)}`;
+}
 
 // Helper function to generate JWT tokens
 const generateTokens = (uid) => {
@@ -583,5 +596,131 @@ router.post('/logout', verifyJWT, async (req, res) => {
     res.status(500).json({ error: 'Logout failed' });
   }
 });
+
+/**
+ * POST /api/auth/forgot-password
+ * Verifies CNIC + registered email match, then returns a short-lived reset token (no email provider required).
+ */
+router.post(
+  '/forgot-password',
+  sanitizeInput,
+  validateForgotPasswordRequest,
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const formattedCNIC = formatCnicInput(req.body.cnic);
+      if (!formattedCNIC) {
+        return res.status(400).json({ error: 'Invalid CNIC' });
+      }
+      const email = String(req.body.email).trim().toLowerCase();
+
+      let userSnapshot = await db.collection('users').where('cnic', '==', formattedCNIC).limit(1).get();
+      if (userSnapshot.empty) {
+        userSnapshot = await db
+          .collection('users')
+          .where('cnic', '==', String(req.body.cnic).replace(/\D/g, ''))
+          .limit(1)
+          .get();
+      }
+
+      if (userSnapshot.empty) {
+        return res.status(404).json({
+          error: 'No account found',
+          message: 'No user matches this CNIC and email. Check your details or register.',
+        });
+      }
+
+      const userDoc = userSnapshot.docs[0];
+      const user = userDoc.data();
+      if (String(user.email || '').toLowerCase() !== email) {
+        return res.status(401).json({
+          error: 'Verification failed',
+          message: 'The email address does not match the account for this CNIC.',
+        });
+      }
+
+      const resetToken = jwt.sign(
+        { uid: userDoc.id, purpose: 'password_reset' },
+        process.env.JWT_SECRET,
+        { expiresIn: '15m' }
+      );
+
+      await auditLog({
+        userId: userDoc.id,
+        action: 'PASSWORD_RESET_REQUESTED',
+        details: { timestamp: new Date().toISOString() },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
+      res.json({
+        success: true,
+        message: 'You can now set a new password. This link expires in 15 minutes.',
+        resetToken,
+      });
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      res.status(500).json({ error: 'Unable to process request' });
+    }
+  }
+);
+
+/**
+ * POST /api/auth/reset-password
+ * Completes password reset using token from /forgot-password
+ */
+router.post(
+  '/reset-password',
+  sanitizeInput,
+  validatePasswordResetConfirm,
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { resetToken, newPassword } = req.body;
+      let decoded;
+      try {
+        decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
+      } catch {
+        return res.status(401).json({ error: 'Invalid or expired reset token' });
+      }
+      if (decoded.purpose !== 'password_reset' || !decoded.uid) {
+        return res.status(401).json({ error: 'Invalid reset token' });
+      }
+
+      const uid = decoded.uid;
+      const userDoc = await db.collection('users').doc(uid).get();
+      if (!userDoc.exists) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const newPasswordHash = await bcrypt.hash(newPassword, 12);
+      await auth.updateUser(uid, { password: newPassword });
+      await db.collection('users').doc(uid).update({
+        passwordHash: newPasswordHash,
+        updatedAt: new Date(),
+      });
+
+      const sessionSnap = await db.collection('sessions').where('uid', '==', uid).get();
+      const batchDeletes = sessionSnap.docs.map((d) => d.ref.delete());
+      await Promise.all(batchDeletes);
+
+      await auditLog({
+        userId: uid,
+        action: 'PASSWORD_RESET_COMPLETE',
+        details: { timestamp: new Date().toISOString() },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+
+      res.json({
+        success: true,
+        message: 'Password updated. Please sign in with your new password.',
+      });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      res.status(500).json({ error: 'Failed to reset password' });
+    }
+  }
+);
 
 module.exports = router;

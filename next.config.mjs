@@ -7,10 +7,16 @@ const nextConfig = {
     unoptimized: true,
   },
   async rewrites() {
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL || process.env.BACKEND_PROXY_URL || '')
+      .trim()
+      .replace(/\/$/, '');
+    if (!apiBase) {
+      return [];
+    }
     return [
       {
         source: '/api/:path*',
-        destination: '/api/:path*',
+        destination: `${apiBase}/api/:path*`,
       },
     ];
   },

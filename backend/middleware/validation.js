@@ -201,6 +201,38 @@ const validateResetMfa = [
     .withMessage('MFA code must be 6 digits'),
 ];
 
+/** CNIC as digits only or formatted — 13 digits required */
+const validateForgotPasswordRequest = [
+  body('cnic')
+    .trim()
+    .notEmpty()
+    .withMessage('CNIC is required')
+    .custom((value) => {
+      const d = String(value).replace(/\D/g, '');
+      if (d.length !== 13) {
+        throw new Error('CNIC must be 13 digits');
+      }
+      return true;
+    }),
+  body('email').trim().notEmpty().withMessage('Email is required').isEmail().withMessage('Invalid email format').normalizeEmail(),
+];
+
+const validatePasswordResetConfirm = [
+  body('resetToken').trim().notEmpty().withMessage('Reset token is required'),
+  body('newPassword')
+    .notEmpty()
+    .withMessage('New password is required')
+    .isLength({ min: 12 })
+    .withMessage('Password must be at least 12 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[a-zA-Z\d@$!%*?&]/)
+    .withMessage('Password must include uppercase, lowercase, number, and special character'),
+  body('confirmPassword')
+    .notEmpty()
+    .withMessage('Confirm password is required')
+    .custom((value, { req }) => value === req.body.newPassword)
+    .withMessage('Passwords do not match'),
+];
+
 /**
  * Sanitize input to prevent XSS
  */
@@ -233,4 +265,6 @@ module.exports = {
   validateChangeEmail,
   validateChangePassword,
   validateResetMfa,
+  validateForgotPasswordRequest,
+  validatePasswordResetConfirm,
 };
