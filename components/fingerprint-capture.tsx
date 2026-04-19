@@ -19,12 +19,22 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
   const [error, setError] = useState('');
   const [cameraError, setCameraError] = useState('');
   const [cameraAvailable, setCameraAvailable] = useState(true);
-  const [countdown, setCountdown] = useState(0);
   const [videoReady, setVideoReady] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setVideoReady(false);
+  }, []);
 
   const resetCapture = () => {
     setFingerprintImages([]);
@@ -36,158 +46,58 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
     stopCamera();
   };
 
-  // Cleanup camera on unmount
   useEffect(() => {
-    return () => {
-      stopCamera();
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
-  }, []);
+    return () => stopCamera();
+  }, [stopCamera]);
 
   const startCamera = async () => {
     try {
       setError('');
       setCameraError('');
-      setCameraAvailable(true);
       setCaptureState('camera-loading');
 
-      // Check if we're on HTTPS (required for camera access in production)
-      if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        setCameraError('Camera access requires HTTPS. Please ensure you are on a secure connection.');
+      if (typeof window !== 'undefined' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        setCameraError('Camera access requires HTTPS.');
         setCaptureState('idle');
         return;
       }
 
-      // Check for camera support
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError('Camera not supported on this device/browser.');
-        setCaptureState('idle');
-        return;
-      }
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const hasVideoDevice = devices.some(device => device.kind === 'videoinput');
-      if (!hasVideoDevice) {
-        setCameraAvailable(false);
-        setCameraError('No camera device detected on this system.');
-        setCaptureState('idle');
-        return;
-      }
-
-      let stream: MediaStream | null = null;
-
-      // Get camera stream
-      try {
-        console.log('Requesting camera access...');
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        console.log('✓ Stream obtained. Tracks:', stream.getTracks().map(t => `${t.kind}(${t.enabled})`).join(', '));
-      } catch (basicError: any) {
-        console.error('✗ Camera access denied:', basicError.name, basicError.message);
-        let errorMsg = 'Camera access denied. ';
-        if (basicError.name === 'NotAllowedError') {
-          errorMsg += 'Please allow camera permission.';
-        } else if (basicError.name === 'NotFoundError') {
-          errorMsg += 'No camera found on device.';
-        } else if (basicError.name === 'NotReadableError') {
-          errorMsg += 'Camera is in use by another app.';
-        }
-        setCameraError(errorMsg);
-        setCaptureState('idle');
-        return;
-      }
-
-      if (!videoRef.current) {
-        console.error('✗ Video element not in DOM');
-        stream.getTracks().forEach(t => t.stop());
-        setCameraError('Video element not ready.');
-        setCaptureState('idle');
-        return;
-      }
-
-      streamRef.current = stream;
-
-      // Attach stream to video element
-      videoRef.current.srcObject = stream;
-      console.log('✓ Stream attached to video element');
-
-      // Wait for video data to start flowing
-      const waitForVideoData = new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          console.error('✗ Video data timeout (no loadedmetadata event)');
-          reject(new Error('Video stream not starting'));
-        }, 5000);
-
-        const onLoadedMetadata = () => {
-          clearTimeout(timeout);
-          console.log(`✓ Video data flowing. Resolution: ${videoRef.current?.videoWidth}x${videoRef.current?.videoHeight}`);
-          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-          resolve();
-        };
-
-        videoRef.current?.addEventListener('loadedmetadata', onLoadedMetadata);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 } 
+        } 
       });
 
-      try {
-        await waitForVideoData;
-      } catch (error: any) {
-        console.error('✗ Failed waiting for video data:', error.message);
-        stream.getTracks().forEach(t => t.stop());
-        setCameraError('Camera stream not responding. Try again.');
-        setCaptureState('idle');
-        return;
-      }
+      streamRef.current = stream;
+      
+      // Critical: Wait for the next tick to ensure the video element is rendered in 'camera-active' state
+      setCaptureState('camera-active');
 
-      // Now attempt to play
-      try {
-        console.log('Attempting to play video...');
-        await videoRef.current.play();
-        console.log('✓ Video playing');
-        setCaptureState('camera-active');
-        setVideoReady(true);
-      } catch (playError: any) {
-        console.error('✗ Play failed:', playError.message);
-        setCameraError('Could not start video playback.');
-        setCaptureState('idle');
-        stream.getTracks().forEach(t => t.stop());
-        return;
-      }
+      // We use a small timeout to let React finish rendering the video element
+      setTimeout(() => {
+        if (videoRef.current && streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+          videoRef.current.play().catch(e => {
+            console.error("Autoplay prevented:", e);
+            setCameraError("Please click the video to start the camera.");
+          });
+        }
+      }, 100);
 
     } catch (err: any) {
       console.error('Camera initialization error:', err);
-      let errorMessage = 'Could not access camera. ';
-
-      if (err.name === 'NotAllowedError') {
-        errorMessage += 'Please allow camera permission and try again.';
-      } else if (err.name === 'NotFoundError') {
-        errorMessage += 'No camera device found.';
-      } else if (err.name === 'NotReadableError') {
-        errorMessage += 'Camera is already in use by another application.';
-      } else if (err.name === 'OverconstrainedError') {
-        errorMessage += 'Camera does not support the required settings.';
-      } else if (err.name === 'SecurityError') {
-        errorMessage += 'Camera access blocked due to security restrictions.';
-      } else {
-        errorMessage += 'Please check your camera permissions and try again.';
-      }
-
-      setCameraError(errorMessage);
+      setCameraError(err.name === 'NotAllowedError' ? 'Permission denied.' : 'Could not access camera.');
       setCaptureState('idle');
     }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setVideoReady(false);
   };
 
   const captureImage = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
 
-    const video = videoRef.current;
     const canvas = canvasRef.current;
+    const video = videoRef.current;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -195,370 +105,141 @@ export default function FingerprintCapture({ cnic, onVerificationComplete, onCan
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.9);
-
-    setCapturedImage(imageDataUrl);
+    setCapturedImage(canvas.toDataURL('image/jpeg', 0.9));
     setCaptureState('captured');
-  }, []);
+    stopCamera();
+  }, [stopCamera]);
 
   const confirmCapture = () => {
     if (!capturedImage) return;
     const rawBase64 = capturedImage.split(',')[1];
-    // For single hand capture, we store just one image
     setFingerprintImages([rawBase64]);
-    setCapturedImage(null);
-    setError('');
-    stopCamera();
     setCaptureState('review');
   };
 
-  const retake = () => {
-    setCapturedImage(null);
-    setCaptureState('camera-active');
-    setError('');
-  };
-
   const verifyFingerprint = async () => {
-    if (fingerprintImages.length !== 1) {
-      setCaptureState('failed');
-      setError('Please capture your hand before verification.');
-      return;
-    }
-
     setCaptureState('verifying');
-    setError('');
-
     try {
       const token = await getValidAccessToken();
-      if (!token) {
-        setCaptureState('failed');
-        setError('Authentication required. Please login again.');
-        return;
-      }
-
       const response = await fetch(`${getApiUrl()}/api/nadra/verify-fingerprint`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ cnic, fingerprintImages }),
       });
 
       const data = await response.json();
-
       if (response.ok && data.verified) {
         setCaptureState('verified');
-        setTimeout(() => {
-          onVerificationComplete(true, fingerprintImages);
-        }, 1500);
+        setTimeout(() => onVerificationComplete(true, fingerprintImages), 1500);
       } else {
         setCaptureState('failed');
-        setError(data.message || 'Fingerprint verification failed. Please try again.');
+        setError(data.message || 'Verification failed.');
       }
-    } catch (err: any) {
-      console.error('Fingerprint verify error:', err);
+    } catch (err) {
       setCaptureState('failed');
-      setError('Verification service unavailable. Please try again.');
+      setError('Service unavailable.');
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-md border border-border">
-        {/* Header */}
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-md border border-border overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="bg-primary/10 p-2 rounded-lg">
-              <Fingerprint className="text-primary" size={22} />
-            </div>
-            <div>
-              <h2 className="font-bold text-foreground text-lg">Fingerprint Verification</h2>
-              <p className="text-xs text-muted-foreground">Via NADRA Biometric System</p>
-            </div>
+            <Fingerprint className="text-primary" size={22} />
+            <h2 className="font-bold text-foreground">Biometric Verification</h2>
           </div>
-          <button
-            onClick={onCancel}
-            className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
-          >
-            <X size={20} />
-          </button>
+          <button onClick={onCancel} className="p-2 hover:bg-muted rounded-full"><X size={20} /></button>
         </div>
 
-        {/* Body */}
         <div className="p-5">
-          {/* Idle State */}
           {captureState === 'idle' && (
             <div className="text-center space-y-4">
-              <div className="bg-primary/5 rounded-xl p-6 border border-primary/20">
-                <Fingerprint size={56} className="mx-auto text-primary mb-3 opacity-70" />
-                <p className="text-sm text-foreground font-medium mb-1">
-                  Biometric Verification Required
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Place your entire hand flat on a light surface or directly on the camera lens,
-                  ensuring all five fingers are visible, then capture a clear image for NADRA verification.
-                </p>
+              <div className="bg-primary/5 p-6 rounded-xl border border-primary/10">
+                <Fingerprint size={48} className="mx-auto text-primary mb-2 opacity-50" />
+                <p className="text-sm">Position your hand against a plain background.</p>
               </div>
-              <div className="bg-muted rounded-lg p-3 text-left">
-                <p className="text-xs text-muted-foreground font-medium mb-1">Tips for best results:</p>
-                <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>Ensure all five fingers are clearly visible</li>
-                  <li>Keep hand flat and spread fingers slightly</li>
-                  <li>Ensure good lighting on your hand</li>
-                  <li>Hold still during capture</li>
-                  <li>Keep background plain and well-lit</li>
-                </ul>
-              </div>
-              {(error || cameraError) && (
-                <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg flex items-center gap-2">
-                  <AlertCircle size={16} />
-                  {cameraError || error}
-                </div>
-              )}
-              <button
-                onClick={startCamera}
-                className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-              >
-                <Camera size={18} />
-                Open Camera
-              </button>
-              <button
-                onClick={async () => {
-                  try {
-                    console.log('Testing basic camera access...');
-                    const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                    console.log('Test camera access successful:', testStream);
-                    alert('Camera access works! Stream tracks:', testStream.getTracks().length);
-                    testStream.getTracks().forEach(track => track.stop());
-                  } catch (e) {
-                    console.error('Test camera access failed:', e);
-                    alert('Camera access failed: ' + e.message);
-                  }
-                }}
-                className="w-full bg-secondary text-secondary-foreground py-2 rounded-lg font-semibold hover:bg-secondary/80 transition-colors text-sm"
-              >
-                Test Camera Access
-              </button>
-              {!cameraAvailable && (
-                <div className="text-sm text-muted-foreground">
-                  Camera not found. You can still capture a fingerprint image by using any available camera device or a plain surface.
-                </div>
-              )}
+              {cameraError && <p className="text-destructive text-xs">{cameraError}</p>}
+              <button onClick={startCamera} className="w-full bg-primary text-white py-3 rounded-xl font-bold">Open Camera</button>
             </div>
           )}
 
-          {/* Camera Loading */}
           {captureState === 'camera-loading' && (
-            <div className="text-center py-8 space-y-4">
-              <div className="relative mx-auto w-20 h-20">
-                <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin" />
-                <Camera className="absolute inset-0 m-auto text-primary" size={32} />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">Initializing Camera...</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Please allow camera access when prompted
-                </p>
-              </div>
+            <div className="py-12 text-center animate-pulse">
+              <Camera className="mx-auto mb-2 text-muted-foreground" />
+              <p>Waking up camera...</p>
             </div>
           )}
 
-          {/* Camera Active */}
           {captureState === 'camera-active' && (
             <div className="space-y-4">
-              <div className="rounded-2xl p-4 border border-border bg-slate-950/10">
-                <p className="text-sm font-semibold text-foreground">Capture Your Hand</p>
-                <p className="text-xs text-muted-foreground">Position all five fingers clearly in frame</p>
-              </div>
-              <div className="relative rounded-xl overflow-hidden border-2 border-primary aspect-video bg-black">
+              <div className="relative aspect-video bg-black rounded-xl overflow-hidden border-2 border-primary">
                 <video
                   ref={videoRef}
                   autoPlay
                   playsInline
                   muted
+                  onCanPlay={() => setVideoReady(true)}
                   className="w-full h-full object-cover"
-                  onLoadedData={() => console.log('Video loaded data')}
-                  onError={(e) => console.error('Video element error:', e)}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    backgroundColor: 'transparent'
-                  }}
                 />
                 {!videoReady && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
-                    <div className="text-center text-white">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
-                      <p className="text-sm">Loading camera...</p>
-                    </div>
-                  </div>
-                )}
-                /* Hand overlay guide */
-                {videoReady && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="border-2 border-white/60 rounded-lg w-48 h-32 flex items-center justify-center bg-black/20">
-                      <Fingerprint size={48} className="text-white/60" />
-                    </div>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent animate-spin rounded-full" />
                   </div>
                 )}
                 {videoReady && (
-                  <div className="absolute top-2 right-2 bg-green-500 w-3 h-3 rounded-full animate-pulse" />
+                  <div className="absolute inset-0 border-[30px] border-black/20 pointer-events-none flex items-center justify-center">
+                    <div className="w-full h-full border border-white/30 rounded-lg" />
+                  </div>
                 )}
               </div>
-              <p className="text-xs text-center text-muted-foreground">
-                Position your entire hand within the frame with all fingers visible and spread slightly.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    resetCapture();
-                    onCancel();
-                  }}
-                  className="flex-1 border border-border text-foreground py-3 rounded-xl font-semibold hover:bg-muted transition-colors flex items-center justify-center gap-2"
-                >
-                  <X size={16} />
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    stopCamera();
-                    setTimeout(() => startCamera(), 500);
-                  }}
-                  className="px-4 py-3 border border-border text-foreground rounded-xl font-semibold hover:bg-muted transition-colors"
-                >
-                  🔄
-                </button>
-                <button
-                  onClick={captureImage}
-                  className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Camera size={16} />
-                  Capture
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Captured Finger */}
-          {captureState === 'captured' && capturedImage && (
-            <div className="space-y-4">
-              <div className="rounded-xl overflow-hidden border border-border aspect-video bg-black">
-                <img
-                  src={capturedImage}
-                  alt="Captured fingerprint"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <p className="text-sm text-center text-muted-foreground">
-                Review the captured image of your hand.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={retake}
-                  className="flex-1 border border-border text-foreground py-3 rounded-xl font-semibold hover:bg-muted transition-colors flex items-center justify-center gap-2"
-                >
-                  <RotateCcw size={16} />
-                  Retake
-                </button>
-                <button
-                  onClick={confirmCapture}
-                  className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Fingerprint size={16} />
-                  Save Hand Capture
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Review All Fingers */}
-          {captureState === 'review' && (
-            <div className="space-y-4">
-              <div className="rounded-2xl p-4 border border-primary/20 bg-primary/5">
-                <p className="text-sm font-semibold text-foreground">Hand Capture Complete</p>
-                <p className="text-xs text-muted-foreground">Review the image below before verification.</p>
-              </div>
-              <div className="rounded-xl overflow-hidden border border-border bg-black aspect-video">
-                <img
-                  src={`data:image/jpeg;base64,${fingerprintImages[0]}`}
-                  alt="Captured hand"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={resetCapture}
-                  className="flex-1 border border-border text-foreground py-3 rounded-xl font-semibold hover:bg-muted transition-colors"
-                >
-                  Retake
-                </button>
-                <button
-                  onClick={verifyFingerprint}
-                  className="flex-1 bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors"
-                >
-                  Verify Hand
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Verifying */}
-          {captureState === 'verifying' && (
-            <div className="text-center py-8 space-y-4">
-              <div className="relative mx-auto w-20 h-20">
-                <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin" />
-                <Fingerprint className="absolute inset-0 m-auto text-primary" size={32} />
-              </div>
-              <div>
-                <p className="font-semibold text-foreground">Verifying with NADRA...</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Comparing biometric data with NADRA records
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Verified */}
-          {captureState === 'verified' && (
-            <div className="text-center py-8 space-y-4">
-              <div className="mx-auto w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-                <CheckCircle size={48} className="text-green-600 dark:text-green-400" />
-              </div>
-              <div>
-                <p className="font-bold text-foreground text-lg">Fingerprint Verified!</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Identity confirmed by NADRA. Proceeding with SIM registration...
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Failed */}
-          {captureState === 'failed' && (
-            <div className="text-center space-y-4">
-              <div className="mx-auto w-20 h-20 bg-destructive/10 rounded-full flex items-center justify-center">
-                <AlertCircle size={48} className="text-destructive" />
-              </div>
-              <div>
-                <p className="font-bold text-foreground text-lg">Verification Failed</p>
-                <p className="text-sm text-muted-foreground mt-1">{error}</p>
-              </div>
-              <button
-                onClick={retake}
-                className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+              <button 
+                disabled={!videoReady}
+                onClick={captureImage} 
+                className="w-full bg-primary text-white py-3 rounded-xl font-bold disabled:opacity-50"
               >
-                <RotateCcw size={16} />
-                Try Again
+                Capture Hand
               </button>
             </div>
           )}
-        </div>
 
-        {/* Hidden canvas for capture */}
+          {captureState === 'captured' && (
+            <div className="space-y-4">
+              <img src={capturedImage!} className="w-full rounded-xl aspect-video object-cover" alt="Captured" />
+              <div className="flex gap-2">
+                <button onClick={() => { setCapturedImage(null); startCamera(); }} className="flex-1 bg-secondary py-3 rounded-xl">Retake</button>
+                <button onClick={confirmCapture} className="flex-1 bg-primary text-white py-3 rounded-xl font-bold">Confirm</button>
+              </div>
+            </div>
+          )}
+
+          {captureState === 'review' && (
+            <div className="text-center space-y-4">
+              <p className="font-bold">Image Ready</p>
+              <button onClick={verifyFingerprint} className="w-full bg-primary text-white py-3 rounded-xl">Verify with NADRA</button>
+              <button onClick={resetCapture} className="text-xs text-muted-foreground underline">Start Over</button>
+            </div>
+          )}
+
+          {(captureState === 'verifying' || captureState === 'verified') && (
+            <div className="py-10 text-center space-y-4">
+              {captureState === 'verifying' ? (
+                <div className="w-12 h-12 border-4 border-primary border-t-transparent animate-spin rounded-full mx-auto" />
+              ) : (
+                <CheckCircle size={48} className="mx-auto text-green-500" />
+              )}
+              <p className="font-medium">{captureState === 'verifying' ? 'Processing...' : 'Verified Successfully'}</p>
+            </div>
+          )}
+
+          {captureState === 'failed' && (
+            <div className="text-center space-y-4">
+              <AlertCircle size={48} className="mx-auto text-destructive" />
+              <p className="text-destructive font-bold">{error}</p>
+              <button onClick={resetCapture} className="w-full bg-primary text-white py-3 rounded-xl">Try Again</button>
+            </div>
+          )}
+        </div>
         <canvas ref={canvasRef} className="hidden" />
       </div>
     </div>
