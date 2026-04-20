@@ -150,7 +150,7 @@ async function submitToBlockchain(data) {
     await gateway.connect(ccp, {
       wallet,
       identity: identityLabel,
-      discovery: { enabled: true, asLocalhost },
+      discovery: { enabled: false, asLocalhost },
     });
     const network = await gateway.getNetwork(channelName);
     const contract = network.getContract(chaincodeName);
