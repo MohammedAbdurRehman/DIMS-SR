@@ -121,19 +121,34 @@ router.post(
         createdAt: new Date(),
       });
 
-      // Submit to Hyperledger Fabric blockchain
-      // const result = await fabricClient.submitTransaction(
-      //   'registerSIM',
-      //   cnic,
-      //   fullName,
-      //   fatherName,
-      //   dateOfBirth,
-      //   mobileNumber,
-      //   mobileNetwork
-      // );
 
-      // Log to audit trail
-      // await logAuditEvent(userId, 'SIM_REGISTERED', 'sim', trackingNumber, req, simRegistration);
+      // Submit to Hyperledger Fabric blockchain
+      let blockchainResult = null;
+      try {
+        const { submitToBlockchain } = require('../config/fabric-gateway');
+        blockchainResult = await submitToBlockchain({
+          action: 'registerSIM',
+          transactionId,
+          trackingNumber,
+          cnic,
+          userId,
+          mobileNetwork,
+          mobileNumber,
+          deliveryAddress,
+          paymentAddress: sameAsDelivery ? deliveryAddress : paymentAddress,
+          status: 'processing',
+          biometricVerified: true,
+          biometricMatchScore: biometricResult.matchScore,
+          registeredAt: new Date().toISOString(),
+        });
+      } catch (blockchainError) {
+        console.error('[Blockchain Error] SIM Registration:', blockchainError);
+        // Optionally: Rollback DB writes here if atomicity is required
+        return res.status(502).json({
+          error: 'Blockchain submission failed',
+          message: blockchainError.message || 'Failed to submit SIM registration to blockchain',
+        });
+      }
 
       res.status(201).json({
         message: 'SIM registration request submitted successfully',
@@ -239,15 +254,25 @@ router.post(
         });
       }
 
-      // Call Hyperledger Fabric chaincode
-      // const result = await fabricClient.submitTransaction(
-      //   'deactivateSIM',
-      //   cnic,
-      //   simId
-      // );
 
-      // Log deactivation
-      // await logAuditEvent(userId, 'SIM_DEACTIVATED', 'sim', simId, req);
+      // Call Hyperledger Fabric chaincode
+      let blockchainResult = null;
+      try {
+        const { submitToBlockchain } = require('../config/fabric-gateway');
+        blockchainResult = await submitToBlockchain({
+          action: 'deactivateSIM',
+          simId,
+          cnic,
+          userId,
+          deactivatedAt: new Date().toISOString(),
+        });
+      } catch (blockchainError) {
+        console.error('[Blockchain Error] SIM Deactivation:', blockchainError);
+        return res.status(502).json({
+          error: 'Blockchain submission failed',
+          message: blockchainError.message || 'Failed to submit SIM deactivation to blockchain',
+        });
+      }
 
       res.json({
         message: 'SIM deactivated successfully with biometric verification',

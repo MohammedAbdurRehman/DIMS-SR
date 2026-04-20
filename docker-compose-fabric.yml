@@ -86,3 +86,33 @@ services:
     depends_on:
       - orderer.dims-sr.local
       - peer0.org1.dims-sr.local
+
+# Backend API service
+  backend:
+    build:
+      context: ./backend
+    image: dims-sr-backend:latest
+    container_name: dims-sr-backend
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - FABRIC_ENABLED=true
+      - FABRIC_CONNECTION_PROFILE_PATH=/app/fabric-connection.json
+      - FABRIC_USER_CREDENTIALS_DIR=/app/msp/appUser
+      - FABRIC_CHANNEL_NAME=mychannel
+      - FABRIC_CHAINCODE_NAME=simregistry
+      - FABRIC_DISCOVERY_AS_LOCALHOST=true
+      - FIREBASE_CONFIG_PATH=/app/firebase-key.json
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - ./fabric-network/connection-profile.json:/app/fabric-connection.json:ro
+      - ./fabric-network/appUser:/app/msp/appUser:ro
+      - ./backend/firebase-key.json:/app/firebase-key.json:ro
+    networks:
+      - fabric-network
+    depends_on:
+      - peer0.org1.dims-sr.local
+      - orderer.dims-sr.local
+      - couchdb0
