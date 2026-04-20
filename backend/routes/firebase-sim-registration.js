@@ -226,10 +226,10 @@ router.post('/register', /* verifyJWT, */ validateSIMRegistration, async (req, r
       registrationDate: new Date().toISOString()
     }];
 
-    await db.collection('users').doc(uid).update({
+    await db.collection('users').doc(uid).set({
       registeredSims: updatedSims,
       updatedAt: new Date()
-    });
+    }, { merge: true });
 
     // Audit log
     await auditLog({
@@ -377,10 +377,10 @@ router.post('/deactivate', verifyJWT, async (req, res) => {
       return sim;
     }) || [];
 
-    await db.collection('users').doc(uid).update({
+    await db.collection('users').doc(uid).set({
       registeredSims: updatedSims,
       updatedAt: new Date()
-    });
+    }, { merge: true });
 
     // Audit log
     await auditLog({
