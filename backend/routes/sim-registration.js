@@ -156,6 +156,7 @@ router.post(
         transactionId,
         trackingNumber,
         status: 'processing',
+        fabricTxId: blockchainResult?.fabricTxId || null,
         details: {
           mobileNetwork,
           mobileNumber,
