@@ -8,7 +8,7 @@ NodeOUs:
     OrganizationalUnitIdentifier: peer
   AdminOUIdentifier:
     Certificate: cacerts/localhost-9054-ca-orderer.pem
-    OrganizationalUnitIdentifier: admin
+    OrganizationalUnitIdentifier: orderer
   OrdererOUIdentifier:
     Certificate: cacerts/localhost-9054-ca-orderer.pem
     OrganizationalUnitIdentifier: orderer

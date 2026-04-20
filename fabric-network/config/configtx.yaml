@@ -17,18 +17,18 @@ Organizations:
     # OrdererOrg defines the organization that operates the orderer
     - &OrdererOrg
         Name: OrdererOrg
-        ID: HyperledgerMSP
+        ID: OrdererMSP
         MSPDir: /etc/hyperledger/msp/orderer
         Policies:
             Readers:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.member')"
+                Rule: "OR('OrdererMSP.member')"
             Writers:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.member')"
+                Rule: "OR('OrdererMSP.member')"
             Admins:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.admin')"
+                Rule: "OR('OrdererMSP.admin')"
 
     # SampleOrg defines an MSP using the sampleconfig. It should never be used
     # in production but may be used as a template for other definitions.
@@ -48,7 +48,7 @@ Organizations:
 
         # ID is the key by which this org's MSP definition will be referenced.
         # ID can include alphanumeric characters as well as dots and dashes.
-        ID: Org1MSP
+        ID: Hyperledger
 
         # MSPDir is the filesystem path which contains the MSP configuration.
         MSPDir: /etc/hyperledger/msp/peer
@@ -59,22 +59,22 @@ Organizations:
         Policies: &SampleOrgPolicies
             Readers:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.member')"
+                Rule: "OR('Hyperledger.member')"
                 # If your MSP is configured with the new NodeOUs, you might
                 # want to use a more specific rule like the following:
-                # Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.peer', 'HyperledgerMSP.client')"
+                # Rule: "OR('Hyperledger.admin', 'Hyperledger.peer', 'Hyperledger.client')"
             Writers:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.client')"
+                Rule: "OR('Hyperledger.admin', 'Hyperledger.client')"
                 # If your MSP is configured with the new NodeOUs, you might
                 # want to use a more specific rule like the following:
-                # Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.client')"
+                # Rule: "OR('Hyperledger.admin', 'Hyperledger.client')"
             Admins:
                 Type: Signature
-                Rule: "OR('HyperledgerMSP.admin')"
+                Rule: "OR('Hyperledger.admin')"
             Endorsement:
                 Type: Signature
-                Rule: "OR('Org1MSP.member')"
+                Rule: "OR('Hyperledger.member')"
 
         # OrdererEndpoints is a list of all orderers this org runs which clients
         # and peers may to connect to to push transactions and receive blocks respectively.
@@ -398,7 +398,7 @@ Orderer: &OrdererDefaults
             Rule: "ANY Writers"
         Admins:
             Type: ImplicitMeta
-            Rule: "MAJORITY Admins"
+            Rule: "ANY Admins"
         # BlockValidation specifies what signatures must be included in the block
         # from the orderer for the peer to validate it.
         BlockValidation:
@@ -465,6 +465,7 @@ Profiles:
             <<: *OrdererDefaults
             Organizations:
                 - *OrdererOrg
+                - *SampleOrg
         Consortiums:
             SampleConsortium:
                 Organizations:
@@ -535,7 +536,7 @@ Profiles:
                       <<: *SampleOrgPolicies
                       Admins:
                           Type: Signature
-                          Rule: "OR('SampleOrg.member')"
+                          Rule: "OR('HyperledgerMSP.member')"
         Application:
             <<: *ApplicationDefaults
             Organizations:
@@ -544,7 +545,7 @@ Profiles:
                       <<: *SampleOrgPolicies
                       Admins:
                           Type: Signature
-                          Rule: "OR('SampleOrg.member')"
+                          Rule: "OR('HyperledgerMSP.member')"
         Consortiums:
             SampleConsortium:
                 Organizations:
@@ -553,7 +554,7 @@ Profiles:
                           <<: *SampleOrgPolicies
                           Admins:
                               Type: Signature
-                              Rule: "OR('SampleOrg.member')"
+                              Rule: "OR('HyperledgerMSP.member')"
 
     # SampleDevModeKafka defines a configuration that differs from the
     # SampleDevModeSolo one only in that it uses the Kafka-based orderer.
@@ -675,3 +676,20 @@ Profiles:
                       Admins:
                           Type: Signature
                           Rule: "OR('SampleOrg.member')"
+
+    # SampleAppChannel defines a configuration for application channel
+    SampleAppChannel:
+        <<: *ChannelDefaults
+        Consortium: SampleConsortium
+        Orderer:
+            <<: *OrdererDefaults
+            Organizations:
+                - *OrdererOrg
+        Application:
+            <<: *ApplicationDefaults
+            Organizations:
+                - *SampleOrg
+        Consortiums:
+            SampleConsortium:
+                Organizations:
+                    - *SampleOrg
