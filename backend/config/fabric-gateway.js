@@ -68,14 +68,32 @@ async function buildWallet() {
   const { Wallets } = loadFabricNetwork();
   const identityLabel = process.env.FABRIC_IDENTITY_LABEL || 'appUser';
   const mspId = process.env.FABRIC_MSP_ID || 'Org1MSP';
+  
+  // Check for environment variable certificates first (for Vercel/serverless)
+  if (process.env.FABRIC_CERTIFICATE && process.env.FABRIC_PRIVATE_KEY) {
+    const wallet = await Wallets.newInMemoryWallet();
+    await wallet.put(identityLabel, {
+      credentials: { 
+        certificate: process.env.FABRIC_CERTIFICATE, 
+        privateKey: process.env.FABRIC_PRIVATE_KEY 
+      },
+      mspId,
+      type: 'X.509',
+    });
+    return wallet;
+  }
+  
+  // Fall back to filesystem wallet
   const walletPath = process.env.FABRIC_WALLET_PATH;
   if (walletPath && fs.existsSync(walletPath)) {
     return await Wallets.newFileSystemWallet(walletPath);
   }
+  
+  // Fall back to MSP directory structure
   const credDir = process.env.FABRIC_USER_CREDENTIALS_DIR;
   if (!credDir) {
     throw new Error(
-      'Fabric: set FABRIC_WALLET_PATH (filesystem wallet) or FABRIC_USER_CREDENTIALS_DIR (MSP user folder)'
+      'Fabric: No wallet configuration found. Set FABRIC_CERTIFICATE + FABRIC_PRIVATE_KEY (env vars) or FABRIC_WALLET_PATH (filesystem wallet) or FABRIC_USER_CREDENTIALS_DIR (MSP user folder)'
     );
   }
   return buildWalletFromCredentialsDir(credDir, identityLabel, mspId);
@@ -102,19 +120,24 @@ async function submitToBlockchain(data) {
   const { Gateway, Wallets } = loadFabricNetwork();
 
   const ccpPath = process.env.FABRIC_CONNECTION_PROFILE_PATH;
-  if (!ccpPath || !fs.existsSync(ccpPath)) {
+  let ccp;
+  
+  if (process.env.FABRIC_CONNECTION_PROFILE) {
+    // Load connection profile from environment variable (for Vercel/serverless)
+    try {
+      ccp = JSON.parse(process.env.FABRIC_CONNECTION_PROFILE);
+    } catch (error) {
+      throw new Error(`Fabric: Invalid FABRIC_CONNECTION_PROFILE JSON: ${error.message}`);
+    }
+  } else if (ccpPath && fs.existsSync(ccpPath)) {
+    // Load connection profile from file (for local development)
+    ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
+  } else {
     throw new Error(
-      `Fabric: FABRIC_CONNECTION_PROFILE_PATH missing or not found (${ccpPath || 'unset'}). ` +
-        'Generate a connection profile from your Fabric network (e.g. fabric-samples/test-network).'
+      `Fabric: Neither FABRIC_CONNECTION_PROFILE (env var) nor FABRIC_CONNECTION_PROFILE_PATH (${ccpPath || 'unset'}) is available. ` +
+        'Set FABRIC_CONNECTION_PROFILE with the connection profile JSON or FABRIC_CONNECTION_PROFILE_PATH to a file path.'
     );
   }
-
-  const channelName = process.env.FABRIC_CHANNEL_NAME || 'mychannel';
-  const chaincodeName = process.env.FABRIC_CHAINCODE_NAME || 'simregistry';
-  const identityLabel = process.env.FABRIC_IDENTITY_LABEL || 'appUser';
-  const asLocalhost = String(process.env.FABRIC_DISCOVERY_AS_LOCALHOST || '').toLowerCase() === 'true';
-
-  const ccp = JSON.parse(fs.readFileSync(ccpPath, 'utf8'));
   const wallet = await buildWallet();
   const gateway = new Gateway();
 

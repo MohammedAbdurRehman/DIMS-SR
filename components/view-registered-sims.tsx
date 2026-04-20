@@ -12,6 +12,7 @@ interface RegisteredSim {
   registrationDate: string;
   status: 'active' | 'pending' | 'inactive';
   transactionId: string;
+  fabricTxId: string | null;
 }
 
 interface ViewRegisteredSimsProps {
@@ -60,6 +61,7 @@ export default function ViewRegisteredSims({ cnic, onBack }: ViewRegisteredSimsP
           registrationDate: sim.registrationDate || sim.createdAt?.split('T')[0] || new Date().toISOString().split('T')[0],
           status: sim.status === 'active' ? 'active' : sim.status === 'processing' ? 'pending' : 'inactive',
           transactionId: sim.transactionId,
+          fabricTxId: sim.fabricTxId || null,
         }));
         setRegisteredSims(sims);
       } else {

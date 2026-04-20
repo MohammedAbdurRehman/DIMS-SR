@@ -76,15 +76,16 @@ services:
     tty: true
     environment:
       GOPATH: /opt/gopath
-      FABRIC_CFG_PATH: /etc/hyperledger/fabric
+      FABRIC_CFG_PATH: /etc/hyperledger/channel-artifacts
       CORE_PEER_ID: cli
       CORE_PEER_ADDRESS: peer0.org1.dims-sr.local:7051
       CORE_PEER_LOCALMSPID: Org1MSP
-      CORE_PEER_MSPCONFIGPATH: /etc/hyperledger/msp/users/Admin@org1.dims-sr.local/msp
+      CORE_PEER_MSPCONFIGPATH: /etc/hyperledger/msp/peer
     volumes:
       - ./fabric-network/peer0.org1/msp:/etc/hyperledger/msp/peer
+      - ./fabric-network/orderer/msp:/etc/hyperledger/msp/orderer
       - ./chaincode:/opt/gopath/src/github.com/dims-sr/chaincode
-      - ./fabric-network/config:/etc/hyperledger/fabric
+      - ./fabric-network/config:/etc/hyperledger/channel-artifacts
     networks:
       - fabric-network
     depends_on:
