@@ -54,7 +54,7 @@ export default function ViewRegisteredSims({ cnic, onBack }: ViewRegisteredSimsP
 
       if (response.ok) {
         // Transform SIMs data
-        const sims = data.sims.map((sim: any) => ({
+        const sims = data.user.sims.map((sim: any) => ({
           id: sim.id,
           simNumber: sim.mobileNumber,
           operator: sim.networkProvider,
