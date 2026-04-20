@@ -181,9 +181,9 @@ router.post('/register', /* verifyJWT, */ validateSIMRegistration, async (req, r
       paymentAddress: sameAsDelivery ? deliveryAddress : paymentAddress,
       fingerprintHashes,
       fingerprintVerificationStatus: fingerprintVerified ? 'verified' : 'pending',
-      status: 'processing',
+      status: 'active',
       registrationDate: new Date(),
-      activationDate: null,
+      activationDate: new Date(),
       deactivationDate: null,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -255,7 +255,7 @@ router.post('/register', /* verifyJWT, */ validateSIMRegistration, async (req, r
         trackingNumber,
         mobileNumber,
         networkProvider: mobileNetwork || user.networkProvider,
-        status: 'processing',
+        status: 'active',
         registrationDate: new Date()
       }
     });
