@@ -17,18 +17,18 @@ Organizations:
     # OrdererOrg defines the organization that operates the orderer
     - &OrdererOrg
         Name: OrdererOrg
-        ID: OrdererMSP
+        ID: HyperledgerMSP
         MSPDir: /etc/hyperledger/msp/orderer
         Policies:
             Readers:
                 Type: Signature
-                Rule: "OR('OrdererMSP.member')"
+                Rule: "OR('HyperledgerMSP.member')"
             Writers:
                 Type: Signature
-                Rule: "OR('OrdererMSP.member')"
+                Rule: "OR('HyperledgerMSP.member')"
             Admins:
                 Type: Signature
-                Rule: "OR('OrdererMSP.admin')"
+                Rule: "OR('HyperledgerMSP.admin')"
 
     # SampleOrg defines an MSP using the sampleconfig. It should never be used
     # in production but may be used as a template for other definitions.
@@ -59,19 +59,19 @@ Organizations:
         Policies: &SampleOrgPolicies
             Readers:
                 Type: Signature
-                Rule: "OR('Org1MSP.member')"
+                Rule: "OR('HyperledgerMSP.member')"
                 # If your MSP is configured with the new NodeOUs, you might
                 # want to use a more specific rule like the following:
-                # Rule: "OR('Org1MSP.admin', 'Org1MSP.peer', 'Org1MSP.client')"
+                # Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.peer', 'HyperledgerMSP.client')"
             Writers:
                 Type: Signature
-                Rule: "OR('Org1MSP.member')"
+                Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.client')"
                 # If your MSP is configured with the new NodeOUs, you might
                 # want to use a more specific rule like the following:
-                # Rule: "OR('Org1MSP.admin', 'Org1MSP.client')"
+                # Rule: "OR('HyperledgerMSP.admin', 'HyperledgerMSP.client')"
             Admins:
                 Type: Signature
-                Rule: "OR('Org1MSP.admin')"
+                Rule: "OR('HyperledgerMSP.admin')"
             Endorsement:
                 Type: Signature
                 Rule: "OR('Org1MSP.member')"
