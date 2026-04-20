@@ -82,13 +82,14 @@ router.post(
         registeredAt: new Date().toISOString(),
       };
 
-      // Store SIM in database
+
+      // Store SIM in database (set status to 'active' after blockchain commit)
       const simRef = await db.collection('sims').add({
         uid: userId,
         cnic,
         mobileNumber,
         networkProvider: mobileNetwork,
-        status: 'processing',
+        status: 'active',
         registrationDate: new Date(),
         transactionId,
         trackingNumber,
@@ -108,15 +109,15 @@ router.post(
         transactionId,
         trackingNumber,
         orderDate: new Date(),
-        status: 'processing',
+        status: 'active',
         deliveryAddress,
         paymentAddress: sameAsDelivery ? deliveryAddress : paymentAddress,
         biometricVerified: true,
         biometricMatchScore: biometricResult.matchScore,
         timeline: [{
-          status: 'Processing',
+          status: 'Active',
           timestamp: new Date(),
-          description: 'SIM registration request submitted with biometric verification'
+          description: 'SIM registration request submitted and activated with biometric verification'
         }],
         createdAt: new Date(),
       });
