@@ -138,6 +138,11 @@ async function submitToBlockchain(data) {
         'Set FABRIC_CONNECTION_PROFILE with the connection profile JSON or FABRIC_CONNECTION_PROFILE_PATH to a file path.'
     );
   }
+  const channelName = process.env.FABRIC_CHANNEL_NAME || 'mychannel';
+  const chaincodeName = process.env.FABRIC_CHAINCODE_NAME || 'simregistry';
+  const identityLabel = process.env.FABRIC_IDENTITY_LABEL || 'appUser';
+  const asLocalhost = String(process.env.FABRIC_DISCOVERY_AS_LOCALHOST || '').toLowerCase() === 'true';
+
   const wallet = await buildWallet();
   const gateway = new Gateway();
 
