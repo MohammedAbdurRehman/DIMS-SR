@@ -20,7 +20,7 @@
   },
   "orderers": {
     "orderer.example.com": {
-      "url": "grpcs://localhost:7050",
+      "url": "grpc://0.tcp.ap.ngrok.io:11242",
       "tlsCACerts": {
         "path": "/etc/hyperledger/fabric/tls/tlscacerts/tls-localhost-7054-ca-org1.pem"
       }
@@ -28,7 +28,7 @@
   },
   "peers": {
     "peer0.org1.example.com": {
-      "url": "grpcs://localhost:7051",
+      "url": "grpc://0.tcp.ap.ngrok.io:13842",
       "grpcOptions": {
         "ssl-target-name-override": "peer0.org1.example.com",
         "hostnameOverride": "peer0.org1.example.com"
