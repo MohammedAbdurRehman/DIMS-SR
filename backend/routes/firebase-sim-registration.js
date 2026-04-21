@@ -363,15 +363,19 @@ router.post('/deactivate', verifyJWT, async (req, res) => {
       }
     }
 
-    await simRef.delete();
+    await simRef.update({
+      status: 'inactive',
+      deactivationDate: new Date(),
+      fingerprintVerificationStatus: 'verified',
+      updatedAt: new Date()
+    });
 
-    // Delete associated order
-    const ordersSnapshot = await db.collection('orders').where('simId', '==', simId).where('uid', '==', uid).limit(1).get();
-    if (!ordersSnapshot.empty) {
-      await ordersSnapshot.docs[0].ref.delete();
-    }
-
-    const updatedSims = user.registeredSims?.filter(sim => sim.simId !== simId) || [];
+    const updatedSims = user.registeredSims?.map(sim => {
+      if (sim.simId === simId) {
+        return { ...sim, status: 'inactive', deactivationDate: new Date().toISOString() };
+      }
+      return sim;
+    }) || [];
 
     await db.collection('users').doc(uid).set({
       registeredSims: updatedSims,
