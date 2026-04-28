@@ -132,8 +132,8 @@ router.get('/profile', /* verifyJWT, */ async (req, res) => {
         accountStatus: userData.accountStatus,
         createdAt: userData.createdAt?.toDate?.()?.toISOString() || userData.createdAt,
         registeredSims: userData.registeredSims || [],
+        sims,
       },
-      sims,
       orders,
     });
   } catch (error) {
